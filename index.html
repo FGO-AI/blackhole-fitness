@@ -1,0 +1,2097 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blackhole Fitness</title>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+:root{
+  --bg:#0d0f14; --card:rgba(28,33,48,.72); --border:#252d3d;
+  --accent:#f06511; --accent-dim:rgba(240,101,17,.16);
+  --ember:#ff9a3d; --ember-dim:rgba(255,122,24,.16); --ember-mid:rgba(255,140,40,.5);
+  --ink:#e8ecf4; --mut:#8b97b3; --danger:#ff5252;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font-family:'Space Grotesk',system-ui,sans-serif;overflow:hidden}
+
+/* ============ THE LIVING BACKGROUND (raytraced black hole) ============ */
+#bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+#bhCanvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+#bg .shade{position:absolute;inset:0;
+  background:
+    radial-gradient(ellipse at 50% 42%, rgba(13,15,20,.22) 0%, rgba(13,15,20,.76) 62%, rgba(13,15,20,.94) 100%),
+    linear-gradient(180deg, rgba(13,15,20,.55), rgba(13,15,20,.4) 40%, rgba(13,15,20,.7));}
+
+/* ============ HEADER ============ */
+header{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:center;gap:14px;
+  padding:14px clamp(16px,4vw,32px);background:linear-gradient(180deg,rgba(13,15,20,.85),transparent)}
+.brand{font-family:'Unbounded',sans-serif;font-weight:800;font-size:15px;letter-spacing:.06em}
+.brand b{color:var(--accent)}
+#crumb{margin-left:auto;font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:var(--mut)}
+#back{display:none;background:rgba(22,26,35,.7);border:1px solid var(--border);color:var(--accent);
+  border-radius:10px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;transition:border-color .25s}
+#back:hover{border-color:var(--accent)}
+#back.show{display:block}
+
+/* ============ PAGE STAGE & TRANSITIONS ============ */
+#stage{position:fixed;inset:0;z-index:10}
+.page{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;padding:84px 0 70px;
+  transition:transform .8s cubic-bezier(.16,1,.3,1),opacity .55s ease,filter .8s ease;
+  scrollbar-width:thin;scrollbar-color:#2a3144 transparent;will-change:transform,opacity;-webkit-overflow-scrolling:touch;scroll-behavior:smooth}
+.page::-webkit-scrollbar{width:6px}
+.page::-webkit-scrollbar-thumb{background:#2a3144;border-radius:3px}
+.page.enter-r{transform:translateX(100%) scale(.96);opacity:0}
+.page.enter-l{transform:translateX(-100%) scale(.96);opacity:0}
+.page.exit-l{transform:translateX(-26%) scale(.97);opacity:0;filter:blur(2px)}
+.page.exit-r{transform:translateX(100%) scale(.97);opacity:0;filter:blur(2px)}
+.page.live{transform:translateX(0) scale(1);opacity:1;filter:blur(0)}
+.wrap{max-width:780px;margin:0 auto;padding:0 clamp(18px,4.5vw,30px)}
+
+/* ============ TYPE ============ */
+h1{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(1.9rem,6vw,3.3rem);line-height:1.06;margin:0 0 10px;letter-spacing:-.01em}
+.kicker{font-size:11px;letter-spacing:.34em;text-transform:uppercase;color:var(--ember);font-weight:600;margin-bottom:10px}
+.lede{color:#c7cede;font-size:clamp(15px,2vw,17px);line-height:1.7;max-width:52ch;margin:0}
+.sec{font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:var(--mut);font-weight:700;margin:34px 0 12px}
+.cue{font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:var(--mut);margin-top:5vh;animation:bob 2.4s ease-in-out infinite;text-align:center}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(7px)}}
+
+/* ============ MENU OPTIONS (vertical) ============ */
+.opt{display:flex;align-items:center;gap:18px;background:var(--card);backdrop-filter:blur(8px);
+  border:1px solid var(--border);border-radius:18px;padding:22px 22px;margin-bottom:14px;cursor:pointer;
+  transition:transform .4s cubic-bezier(.16,1,.3,1),border-color .3s ease,box-shadow .4s ease}
+.opt:hover{transform:translateX(8px);border-color:var(--ember-mid);box-shadow:0 8px 36px rgba(255,122,24,.12)}
+.opt .num{font-family:'Unbounded',sans-serif;font-size:12px;color:var(--ember);letter-spacing:.2em;min-width:32px}
+.opt .t{font-family:'Unbounded',sans-serif;font-weight:500;font-size:clamp(1.05rem,3vw,1.4rem);margin-bottom:4px}
+.opt .d{color:var(--mut);font-size:13.5px;line-height:1.5}
+.opt .arrow{margin-left:auto;color:var(--ember);font-size:22px;transition:transform .3s}
+.opt:hover .arrow{transform:translateX(6px)}
+
+/* ============ CARDS / LISTS ============ */
+.card{background:var(--card);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:16px;padding:16px;margin-bottom:12px}
+.card.click{cursor:pointer;transition:transform .4s cubic-bezier(.16,1,.3,1),border-color .3s}
+.card.click:hover{transform:translateX(6px);border-color:var(--ember-mid)}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.pill{background:var(--accent-dim);color:var(--accent);font-size:10px;font-weight:700;padding:2px 9px;border-radius:99px;letter-spacing:.05em}
+.pill.em{background:var(--ember-dim);color:var(--ember)}
+.mut{color:var(--mut)}.em{color:var(--ember)}.gn{color:var(--accent)}
+.big{font-family:'Unbounded',sans-serif;font-weight:500}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:560px){.grid2{grid-template-columns:1fr}}
+.btn{background:var(--accent);color:#000;border:none;border-radius:12px;padding:14px 0;font-size:15px;font-weight:700;cursor:pointer;width:100%;font-family:inherit;letter-spacing:.02em;transition:filter .2s}
+.btn:hover{filter:brightness(1.08)}
+.bar{height:8px;background:var(--border);border-radius:5px;overflow:hidden;margin:10px 0 6px}
+.bar>div{height:100%;background:linear-gradient(90deg,var(--ember),#ffc352);border-radius:5px;transition:width .7s cubic-bezier(.4,0,.2,1);box-shadow:0 0 10px rgba(255,154,61,.5)}
+.x{color:var(--danger);cursor:pointer;font-size:17px;padding:0 4px;line-height:1}
+.stat b{display:block;font-family:'Unbounded',sans-serif;font-weight:500;font-size:clamp(1.3rem,4vw,1.9rem);color:var(--ember)}
+.stat span{font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--mut)}
+.exnum{width:28px;height:28px;border-radius:8px;background:var(--ember-dim);border:1px solid var(--ember-mid);display:flex;align-items:center;justify-content:center;color:var(--ember);font-size:13px;font-weight:700;flex-shrink:0}
+
+/* ============ ANALYSIS WIZARD ============ */
+.inp{background:rgba(22,26,35,.82);border:1px solid var(--border);border-radius:10px;padding:12px 14px;color:var(--ink);font-size:15px;width:100%;font-family:inherit;outline:none;box-sizing:border-box;transition:border-color .25s}
+.inp:focus{border-color:var(--accent)}
+.fl{display:block;font-size:11px;letter-spacing:.22em;color:var(--mut);margin:0 0 6px;text-transform:uppercase;font-weight:600}
+.field{margin-bottom:14px}
+.chiprow{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 16px}
+.chip{padding:9px 18px;border:1px solid var(--border);border-radius:99px;cursor:pointer;font-size:13px;color:var(--mut);background:rgba(22,26,35,.6);transition:all .25s;user-select:none}
+.chip.on{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+.err{color:var(--danger);font-size:13px;min-height:18px;margin:2px 0 8px}
+.macro{display:inline-block;background:rgba(22,26,35,.7);border:1px solid var(--border);border-radius:10px;padding:8px 14px;margin:4px 6px 0 0;font-size:13px}
+/* ---- premium plan components ---- */
+.msplit{display:flex;height:14px;border-radius:8px;overflow:hidden;margin:14px 0 10px;border:1px solid var(--border)}
+.msplit i{display:block;height:100%}
+.mkey{display:flex;gap:16px;flex-wrap:wrap;font-size:12px}
+.mkey span{display:flex;align-items:center;gap:6px;color:var(--mut)}
+.mkey b{color:var(--ink)}
+.dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:2px}
+.pcell{background:rgba(22,26,35,.6);border:1px solid var(--border);border-radius:14px;padding:15px 16px}
+.pcell .lab{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);margin-bottom:7px}
+.pcell .val{font-family:'Unbounded',sans-serif;font-weight:700;font-size:20px;line-height:1}
+.pcell .val small{font-size:12px;font-family:'Space Grotesk';color:var(--mut);font-weight:400}
+.pcell .sub{font-size:11.5px;color:var(--mut);margin-top:5px;line-height:1.4}
+.proj{background:linear-gradient(135deg,rgba(240,101,17,.14),rgba(255,140,40,.05));border:1px solid var(--ember-mid);border-radius:16px;padding:20px}
+.proj .big2{font-family:'Unbounded',sans-serif;font-weight:800;font-size:34px;color:var(--ember);line-height:1}
+.mealrow{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 15px;margin-bottom:8px}
+.mealrow .mname{font-weight:600;font-size:14px;min-width:82px}
+.mealrow .mcal{color:var(--ember);font-weight:700;font-size:14px}
+.mealrow .mmac{font-size:11px;color:var(--mut);margin-top:2px}
+.macro b{color:var(--ember)}
+.daybadge{font-family:'Unbounded',sans-serif;font-size:11px;color:var(--ember);letter-spacing:.15em;min-width:42px}
+.restday{opacity:.6}
+
+/* ============ FOOD BROWSER ============ */
+.search{position:relative;margin:6px 0 14px}
+.search input{width:100%;background:rgba(22,26,35,.85);border:1px solid var(--border);border-radius:12px;padding:13px 14px 13px 42px;color:var(--ink);font-size:15px;font-family:inherit;outline:none;box-sizing:border-box;transition:border-color .25s}
+.search input:focus{border-color:var(--accent)}
+.search .mag{position:absolute;left:15px;top:50%;transform:translateY(-50%);color:var(--mut);font-size:16px}
+.tabs{display:flex;gap:8px;overflow-x:auto;padding:4px 0 10px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.tabs::-webkit-scrollbar{display:none}
+.tab{white-space:nowrap;padding:8px 16px;border:1px solid var(--border);border-radius:99px;cursor:pointer;font-size:13px;color:var(--mut);background:rgba(22,26,35,.6);transition:all .25s;flex-shrink:0;user-select:none}
+.tab.on{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+.fitem{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:11px 14px;margin-bottom:8px;cursor:pointer;transition:transform .25s,border-color .25s}
+.fitem:hover{transform:translateX(5px);border-color:var(--ember-mid)}
+.fitem .add{width:30px;height:30px;border-radius:8px;background:var(--accent-dim);border:1px solid var(--accent);color:var(--accent);font-size:20px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;line-height:1}
+.empty{text-align:center;color:var(--mut);padding:30px 16px;font-size:14px}
+/* ---- MFP-style logging ---- */
+.seg{display:flex;background:rgba(22,26,35,.7);border:1px solid var(--border);border-radius:12px;padding:3px;margin:6px 0 14px;gap:3px}
+.seg button{flex:1;background:transparent;border:none;color:var(--mut);font-family:inherit;font-size:12.5px;font-weight:600;padding:9px 4px;border-radius:9px;cursor:pointer;transition:all .25s}
+.seg button.on{background:var(--accent);color:#fff}
+.mealtabs{display:flex;gap:7px;overflow-x:auto;padding:2px 0 12px;scrollbar-width:none}
+.mealtabs::-webkit-scrollbar{display:none}
+.mealtab{white-space:nowrap;padding:9px 15px;border:1px solid var(--border);border-radius:99px;cursor:pointer;font-size:13px;color:var(--mut);background:rgba(22,26,35,.6);transition:all .25s;flex-shrink:0;display:flex;align-items:center;gap:7px;user-select:none}
+.mealtab.on{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+.mealtab .mt-k{font-size:10.5px;opacity:.75}
+.fav{cursor:pointer;font-size:17px;line-height:1;color:var(--mut);transition:transform .2s,color .2s;user-select:none;flex-shrink:0;padding:4px}
+.fav.on{color:var(--ember)}
+.fav:active{transform:scale(1.3)}
+/* food detail sheet */
+.sheet-bd{position:fixed;inset:0;background:rgba(6,8,12,.72);backdrop-filter:blur(6px);z-index:60;display:flex;align-items:flex-end;justify-content:center;animation:bdIn .3s ease}
+@keyframes bdIn{from{opacity:0}to{opacity:1}}
+.sheet{background:#141924;border:1px solid var(--border);border-bottom:none;border-radius:22px 22px 0 0;width:100%;max-width:780px;padding:12px 22px 30px;animation:shUp .38s cubic-bezier(.16,1,.3,1);max-height:88vh;overflow-y:auto}
+@keyframes shUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.sheet-grab{width:40px;height:4px;border-radius:2px;background:#33405a;margin:6px auto 16px}
+.qstep{display:flex;align-items:center;justify-content:center;gap:20px;margin:20px 0}
+.qstep button{width:52px;height:52px;border-radius:50%;border:1px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-size:28px;font-weight:300;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;transition:transform .2s}
+.qstep button:active{transform:scale(.9)}
+.qstep .qval{font-family:'Unbounded';font-weight:700;font-size:32px;min-width:120px;text-align:center}
+.qstep .qval small{display:block;font-family:'Space Grotesk';font-size:12px;color:var(--mut);font-weight:400;margin-top:3px}
+.qpre{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:20px}
+.qpre span{padding:7px 14px;border:1px solid var(--border);border-radius:99px;font-size:12.5px;color:var(--mut);cursor:pointer;transition:all .2s}
+.qpre span.on{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+.macmini{display:flex;justify-content:space-around;text-align:center;background:rgba(22,26,35,.6);border:1px solid var(--border);border-radius:14px;padding:16px 8px;margin-bottom:20px}
+.macmini b{display:block;font-family:'Unbounded';font-weight:700;font-size:20px}
+.macmini span{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);margin-top:3px;display:block}
+
+/* ============ SCROLL REVEALS (replay up & down) ============ */
+.rv,.rv-l,.rv-r{opacity:0;transition:opacity .7s ease,transform .8s cubic-bezier(.16,1,.3,1);will-change:transform,opacity}
+.rv{transform:translateY(28px)}
+.rv-l{transform:translateX(-30px)}
+.rv-r{transform:translateX(30px)}
+.rv.visible,.rv-l.visible,.rv-r.visible{opacity:1;transform:translate(0,0)}
+
+@media (prefers-reduced-motion:reduce){
+  .page{transition:none}
+  .rv,.rv-l,.rv-r{transition:none;opacity:1;transform:none}
+  .cue,.opt,.card.click{transition:none;animation:none}
+}
+</style>
+</head>
+<body>
+
+<!-- a raytraced black hole with real gravitational lensing -->
+<div id="bg" aria-hidden="true">
+  <canvas id="bhCanvas"></canvas>
+  <div class="shade"></div>
+</div>
+
+<header>
+  <button id="back">‹ Back</button>
+  <div class="brand">◉ BLACKHOLE <b>FITNESS</b></div>
+  <div id="crumb">Menu</div>
+</header>
+
+<main id="stage"></main>
+
+<script>
+/* ================= DATA ================= */
+const GOALS = [
+  { id:"lose",     label:"Lose Weight",  icon:"🔥", calories:1600, desc:"Calorie deficit + cardio focus" },
+  { id:"gain",     label:"Build Muscle", icon:"💪", calories:2800, desc:"Surplus + resistance training" },
+  { id:"endure",   label:"Endurance",    icon:"🏃", calories:2200, desc:"Steady cardio & stamina work" },
+  { id:"maintain", label:"Stay Fit",     icon:"⚖️", calories:2000, desc:"Balanced training & nutrition" },
+];
+const WORKOUTS_SPECIALIZED = {
+  lose:{
+    fatburn:[
+      {name:"HIIT Circuit",duration:25,burn:320,tag:"Fat Burn",sets:["Jump squats x20","Burpees x15","Mountain climbers x30","Rest 30s"]},
+      {name:"Tabata Pyramid",duration:20,burn:260,tag:"Fat Burn",sets:["20s all-out / 10s rest x8 rounds","Rotate: push-ups, jump squats, burpees, mountain climbers"]},
+      {name:"20-Min Kettlebell Burn",duration:20,burn:280,tag:"Fat Burn",sets:["Kettlebell swings 45s","Rest 15s x12 rounds"]},
+      {name:"Stair Sprints",duration:20,burn:300,tag:"Fat Burn",sets:["Sprint up stairs","Walk down x10 rounds"]},
+      {name:"Battle Ropes",duration:15,burn:240,tag:"Fat Burn",sets:["30s max effort","30s rest x10 rounds"]},
+      {name:"Double Under Jump Rope",duration:18,burn:270,tag:"Fat Burn",sets:["45s jump rope","15s rest x10 rounds"]},
+      {name:"Sled Push Sprints",duration:16,burn:290,tag:"Fat Burn",sets:["30s heavy sled push","30s rest x8 rounds"]},
+    ],
+    cardio:[
+      {name:"Treadmill Intervals",duration:30,burn:280,tag:"Cardio",sets:["3min jog warmup","1min sprint / 1min jog x6 rounds","5min cooldown"]},
+      {name:"Running Tempo",duration:35,burn:310,tag:"Cardio",sets:["5min jog warmup","20min steady run","5min cooldown"]},
+      {name:"Rowing Machine Blitz",duration:25,burn:290,tag:"Cardio",sets:["2min row","1min rest x8 rounds","2min easy cooldown"]},
+      {name:"Elliptical Steady State",duration:35,burn:280,tag:"Cardio",sets:["35min zone 2 (conversational pace)"]},
+      {name:"Bike Sprints",duration:20,burn:270,tag:"Cardio",sets:["Spin bike 30s sprint","30s recovery x10 rounds"]},
+      {name:"Jump Rope Blast",duration:15,burn:210,tag:"Cardio",sets:["2min jump rope","1min rest x5 rounds","Cool down"]},
+      {name:"Stair Climber Steady",duration:30,burn:250,tag:"Cardio",sets:["30min moderate pace stair climber"]},
+      {name:"Swimming Cardio",duration:40,burn:320,tag:"Cardio",sets:["10min easy swim","20min steady pace","10min cooldown"]},
+    ],
+  },
+  gain:{
+    upperbody:[
+      {name:"Upper Body Power",duration:50,burn:280,tag:"Strength",sets:["Bench Press 4x8","Barbell Row 4x8","Overhead Press 3x10","Pull-ups 3xMax"]},
+      {name:"Chest Specialist",duration:48,burn:260,tag:"Hypertrophy",sets:["Barbell Bench 4x6","Incline Dumbbell Press 3x8","Cable Flyes 3x12","Machine Press 3x15"]},
+      {name:"Back & Biceps",duration:50,burn:245,tag:"Hypertrophy",sets:["Pendlay Row 4x6","Wide Lat Pulldown 3x8","Underhand Rows 3x10","Barbell Curls 3x8","Preacher Curls 3x12"]},
+      {name:"Shoulders & Traps",duration:42,burn:220,tag:"Hypertrophy",sets:["Overhead Press 4x6","Lateral Raises 3x12","Reverse Flyes 3x12","Shrugs 3x15","Machine Shoulder Press 3x10"]},
+      {name:"Push Day",duration:45,burn:240,tag:"Hypertrophy",sets:["Incline Bench 4x8","Dips 3x12","Lateral Raises 3x15","Tricep Pushdown 3x12"]},
+      {name:"Pull Day",duration:45,burn:230,tag:"Hypertrophy",sets:["Deadlift 4x5","Lat Pulldown 4x10","Face Pulls 3x15","Hammer Curls 3x12"]},
+      {name:"Arm Specialization",duration:35,burn:180,tag:"Hypertrophy",sets:["Barbell Curls 4x6","Tricep Dips 4x8","Machine Curls 3x12","Rope Pushdown 3x12","Concentration Curls 3x12"]},
+      {name:"Chest & Triceps",duration:50,burn:260,tag:"Hypertrophy",sets:["Bench Press 4x6","Incline Bench 3x8","Cable Flyes 3x10","Tricep Dips 3x10","Overhead Extension 3x12"]},
+      {name:"Back Bulk",duration:55,burn:270,tag:"Hypertrophy",sets:["Deadlift 5x5","Barbell Row 4x6","Lat Pulldown 3x8","Machine Row 3x10","Face Pulls 3x15"]},
+      {name:"Shoulder Pump",duration:40,burn:210,tag:"Hypertrophy",sets:["Overhead Press 4x6","Incline Bench 3x8","Lateral Raises 4x12","Reverse Flyes 3x12","Shrugs 3x20"]},
+    ],
+    lowerbody:[
+      {name:"Leg Day",duration:55,burn:350,tag:"Strength",sets:["Back Squat 4x6","Romanian Deadlift 4x8","Leg Press 3x12","Calf Raises 4x15"]},
+      {name:"Quad Focus",duration:50,burn:320,tag:"Strength",sets:["Front Squat 4x6","Leg Press 4x8","Walking Lunges 3x12 each","Leg Extensions 3x15"]},
+      {name:"Hamstring & Glute",duration:48,burn:310,tag:"Strength",sets:["Deadlift 4x5","Leg Curl 4x8","Hip Thrusts 3x10","GHD Sit-ups 3x12"]},
+      {name:"Squat Day",duration:52,burn:340,tag:"Strength",sets:["Back Squat 4x5","Front Squat 3x6","Bulgarian Split Squat 3x8 each","Leg Extensions 3x12"]},
+      {name:"Deadlift Day",duration:50,burn:330,tag:"Strength",sets:["Deadlift 4x5","Sumo Deadlift 3x6","Trap Bar Deadlift 3x6","Leg Curls 3x12"]},
+      {name:"Glute Emphasis",duration:48,burn:300,tag:"Strength",sets:["Barbell Hip Thrust 4x6","Back Squat 3x8","Leg Press 3x10","Walking Lunges 3x12 each"]},
+      {name:"Leg Pump",duration:45,burn:280,tag:"Hypertrophy",sets:["Leg Press 4x10","Leg Extensions 4x12","Leg Curls 4x12","Calf Raises 4x15"]},
+      {name:"Lower Body Supersets",duration:50,burn:320,tag:"Hypertrophy",sets:["Squat + Leg Press 3x8","RDL + Leg Curl 3x10","Lunge + Leg Extension 3x12"]},
+    ],
+    compound:[
+      {name:"Full Body Compound",duration:60,burn:340,tag:"Strength",sets:["Barbell Squat 4x5","Barbell Bench 4x5","Barbell Row 4x5","Rest 3min between sets"]},
+      {name:"Power Clean Cycle",duration:45,burn:300,tag:"Strength",sets:["Power Clean 5x3","Front Squat 3x5","Bench Press 3x5","Barbell Row 3x5"]},
+      {name:"Olympic Lifting Complex",duration:50,burn:310,tag:"Strength",sets:["Snatch 5x3","Clean & Jerk 5x3","Front Squat 3x5"]},
+      {name:"3-Day Split",duration:55,burn:300,tag:"Strength",sets:["Day 1: Bench 4x5, Row 4x5, OHP 3x8","Day 2: Squat 4x5, DL 3x5, Leg Press 3x8","Day 3: Incline 3x8, Lat Pull 3x8, Dips 3x10"]},
+    ],
+  },
+  endure:{
+    running:[
+      {name:"Long Run",duration:45,burn:420,tag:"Aerobic",sets:["5min warmup walk","35min easy run (zone 2)","5min cooldown"]},
+      {name:"Running Tempo",duration:40,burn:380,tag:"Speed",sets:["10min easy run","20min at threshold pace","10min easy run"]},
+      {name:"Fartlek Run",duration:35,burn:350,tag:"Speed",sets:["10min warmup","8x(3min hard / 3min easy)","5min cooldown"]},
+      {name:"Ladder Run",duration:30,burn:320,tag:"Speed",sets:["5min warmup","1-2-3-4-3-2-1 min intervals at race pace","Recovery jogs between"]},
+      {name:"Easy Recovery Run",duration:30,burn:240,tag:"Aerobic",sets:["30min zone 2 (conversational)"]},
+      {name:"Hill Repeats Running",duration:35,burn:360,tag:"Speed",sets:["10min warmup","6x(2min hill sprint / 2min recovery)","5min cooldown"]},
+      {name:"Track Intervals",duration:40,burn:380,tag:"Speed",sets:["10min warmup","10x(400m fast / 400m easy)","5min cooldown"]},
+    ],
+    cycling:[
+      {name:"Cycling Session",duration:60,burn:480,tag:"Aerobic",sets:["10min warmup","40min steady pace","10min cooldown"]},
+      {name:"Hill Repeats Bike",duration:45,burn:420,tag:"Speed",sets:["10min warmup","6x(3min hill sprint / 3min recovery)","10min cooldown"]},
+      {name:"Spin Class Endurance",duration:50,burn:400,tag:"Aerobic",sets:["50min mixed cadence climbing & sprints"]},
+      {name:"Long Distance Ride",duration:90,burn:720,tag:"Aerobic",sets:["90min easy to moderate pace outdoor ride"]},
+      {name:"Tempo Bike Ride",duration:50,burn:440,tag:"Speed",sets:["15min warmup","30min threshold pace","5min cooldown"]},
+    ],
+    swimming:[
+      {name:"Swim Intervals",duration:40,burn:360,tag:"Cross-Train",sets:["4x 100m freestyle","2x 50m backstroke","Rest 30s between laps"]},
+      {name:"Long Distance Swim",duration:50,burn:380,tag:"Aerobic",sets:["Continuous 50min swim, mixed strokes"]},
+      {name:"Swim Pyramid",duration:45,burn:350,tag:"Speed",sets:["100m warmup","100-200-300-200-100m","Easy 100m cooldown"]},
+      {name:"Kickboard Drills",duration:35,burn:280,tag:"Aerobic",sets:["10x 50m kicks","Rest 30s between","Cool down with easy swim"]},
+      {name:"Pull Buoy Set",duration:40,burn:320,tag:"Aerobic",sets:["10x 100m with pull buoy","Rest 30s between","Cool down"]},
+    ],
+    other:[
+      {name:"Rowing Endurance",duration:45,burn:390,tag:"Aerobic",sets:["45min steady state, 2:00–2:15 split"]},
+      {name:"Jump Rope Steady",duration:30,burn:280,tag:"Aerobic",sets:["30min continuous jump rope, steady rhythm"]},
+      {name:"Stair Climbing",duration:35,burn:320,tag:"Aerobic",sets:["35min steady stair climb, conversational pace"]},
+      {name:"Elliptical Endurance",duration:50,burn:380,tag:"Aerobic",sets:["50min zone 2 elliptical"]},
+    ],
+  },
+  maintain:{
+    balanced:[
+      {name:"Full Body Strength",duration:40,burn:260,tag:"Balanced",sets:["Squats 3x10","Push-ups 3x15","Dumbbell rows 3x12","Plank 3x45s"]},
+      {name:"3-Exercise Total Body",duration:35,burn:240,tag:"Balanced",sets:["Deadlifts 3x8","Bench Press 3x8","Rows 3x8"]},
+      {name:"Push Pull Legs Mini",duration:50,burn:280,tag:"Balanced",sets:["Bench 3x8","Rows 3x8","Squats 3x8","Curls 2x10","Triceps 2x10"]},
+      {name:"Dumbbell Full Body",duration:45,burn:260,tag:"Balanced",sets:["Dumbbell Squat 3x10","Dumbbell Bench 3x10","Dumbbell Row 3x10","Farmer Carry 3x40m"]},
+      {name:"Bodyweight Full Body",duration:40,burn:220,tag:"Balanced",sets:["Push-ups 3x15","Squats 3x20","Pull-ups 3x8","Planks 3x60s"]},
+    ],
+    recovery:[
+      {name:"Yoga Flow",duration:35,burn:120,tag:"Recovery",sets:["Sun salutations x5","Warrior sequence","Hip openers","Savasana"]},
+      {name:"Yin Yoga",duration:40,burn:100,tag:"Recovery",sets:["8 poses x5min each","Deep stretches, hold & breathe"]},
+      {name:"Pilates Mat",duration:30,burn:140,tag:"Recovery",sets:["100s","Roll ups","Single leg circles x10 each","Spine stretch"]},
+      {name:"Tai Chi",duration:35,burn:110,tag:"Recovery",sets:["Slow flowing movements","Focus on breathing","Balance & coordination"]},
+      {name:"Stretching Routine",duration:25,burn:80,tag:"Recovery",sets:["10min full body dynamic stretch","10min static hold stretches","5min breathing cooldown"]},
+    ],
+    cardio:[
+      {name:"Moderate Cardio",duration:30,burn:240,tag:"Cardio",sets:["5min warmup","20min steady pace","5min cooldown"]},
+      {name:"Walking Incline",duration:40,burn:180,tag:"Cardio",sets:["40min treadmill walk, 5% incline, zone 2"]},
+      {name:"Elliptical Steady",duration:35,burn:220,tag:"Cardio",sets:["35min zone 2 elliptical"]},
+      {name:"Casual Bike Ride",duration:45,burn:280,tag:"Cardio",sets:["45min easy outdoor bike ride"]},
+      {name:"Light Swimming",duration:30,burn:200,tag:"Cardio",sets:["30min easy mixed stroke swimming"]},
+    ],
+    mobility:[
+      {name:"Core & Mobility",duration:25,burn:140,tag:"Mobility",sets:["Dead bugs 3x12","Bird dogs 3x10","Glute bridges 3x15","Hip mobility flow"]},
+      {name:"Foam Roll & Stretch",duration:20,burn:60,tag:"Mobility",sets:["Quads, hamstrings, back, shoulders 5min each"]},
+      {name:"Yoga Mobility",duration:30,burn:110,tag:"Mobility",sets:["Cat-cow flow","Pigeon pose 3min each","Thread the needle","Downward dog holds"]},
+      {name:"Lacrosse Ball Release",duration:20,burn:70,tag:"Mobility",sets:["Chest, lats, glutes, feet 5min each","Trigger point release"]},
+      {name:"Dynamic Warm-up",duration:15,burn:60,tag:"Mobility",sets:["Leg swings, arm circles, lunges, rotations","Prepare body for training"]},
+    ],
+  },
+};
+/* ===== EXERCISE ENCYCLOPEDIA · every movement per specialized group ===== */
+const EXERCISE_DB = {
+  upperbody:[
+    /* Chest */
+    {m:"Chest",n:"Barbell Bench Press",s:"4x6-8",e:"Barbell"},{m:"Chest",n:"Incline Barbell Bench",s:"4x8",e:"Barbell"},
+    {m:"Chest",n:"Decline Bench Press",s:"3x8",e:"Barbell"},{m:"Chest",n:"Dumbbell Bench Press",s:"4x8",e:"Dumbbell"},
+    {m:"Chest",n:"Incline Dumbbell Press",s:"3x10",e:"Dumbbell"},{m:"Chest",n:"Dumbbell Flyes",s:"3x12",e:"Dumbbell"},
+    {m:"Chest",n:"Cable Flyes",s:"3x12-15",e:"Cable"},{m:"Chest",n:"Pec Deck",s:"3x12",e:"Machine"},
+    {m:"Chest",n:"Machine Chest Press",s:"3x10",e:"Machine"},{m:"Chest",n:"Push-ups",s:"3xAMRAP",e:"Bodyweight"},
+    {m:"Chest",n:"Wide Push-ups",s:"3x15",e:"Bodyweight"},{m:"Chest",n:"Decline Push-ups",s:"3x12",e:"Bodyweight"},
+    {m:"Chest",n:"Weighted Chest Dips",s:"3x8",e:"Dip bar"},{m:"Chest",n:"Svend Press",s:"3x12",e:"Plate"},
+    /* Back */
+    {m:"Back",n:"Conventional Deadlift",s:"4x5",e:"Barbell"},{m:"Back",n:"Pull-ups",s:"4xAMRAP",e:"Bodyweight"},
+    {m:"Back",n:"Chin-ups",s:"3xAMRAP",e:"Bodyweight"},{m:"Back",n:"Lat Pulldown",s:"4x10",e:"Cable"},
+    {m:"Back",n:"Close-Grip Pulldown",s:"3x10",e:"Cable"},{m:"Back",n:"Barbell Bent-Over Row",s:"4x8",e:"Barbell"},
+    {m:"Back",n:"Pendlay Row",s:"4x6",e:"Barbell"},{m:"Back",n:"T-Bar Row",s:"3x8",e:"Barbell"},
+    {m:"Back",n:"Single-Arm Dumbbell Row",s:"3x10 each",e:"Dumbbell"},{m:"Back",n:"Seated Cable Row",s:"3x10",e:"Cable"},
+    {m:"Back",n:"Chest-Supported Row",s:"3x10",e:"Machine"},{m:"Back",n:"Inverted Row",s:"3x12",e:"Bodyweight"},
+    {m:"Back",n:"Face Pulls",s:"3x15",e:"Cable"},{m:"Back",n:"Straight-Arm Pulldown",s:"3x12",e:"Cable"},
+    {m:"Back",n:"Rack Pulls",s:"3x6",e:"Barbell"},{m:"Back",n:"Dumbbell Pullover",s:"3x12",e:"Dumbbell"},
+    /* Shoulders */
+    {m:"Shoulders",n:"Overhead Press",s:"4x6",e:"Barbell"},{m:"Shoulders",n:"Seated Dumbbell Press",s:"4x8",e:"Dumbbell"},
+    {m:"Shoulders",n:"Arnold Press",s:"3x10",e:"Dumbbell"},{m:"Shoulders",n:"Push Press",s:"4x5",e:"Barbell"},
+    {m:"Shoulders",n:"Lateral Raises",s:"4x12-15",e:"Dumbbell"},{m:"Shoulders",n:"Cable Lateral Raise",s:"3x15",e:"Cable"},
+    {m:"Shoulders",n:"Front Raises",s:"3x12",e:"Dumbbell"},{m:"Shoulders",n:"Rear Delt Flyes",s:"3x15",e:"Dumbbell"},
+    {m:"Shoulders",n:"Reverse Pec Deck",s:"3x12",e:"Machine"},{m:"Shoulders",n:"Upright Row",s:"3x10",e:"Barbell"},
+    {m:"Shoulders",n:"Barbell Shrugs",s:"4x12",e:"Barbell"},{m:"Shoulders",n:"Pike Push-ups",s:"3x10",e:"Bodyweight"},
+    {m:"Shoulders",n:"Handstand Push-ups",s:"3xAMRAP",e:"Bodyweight"},
+    /* Arms */
+    {m:"Arms",n:"Barbell Curl",s:"4x8",e:"Barbell"},{m:"Arms",n:"EZ-Bar Curl",s:"3x10",e:"EZ bar"},
+    {m:"Arms",n:"Dumbbell Curl",s:"3x10",e:"Dumbbell"},{m:"Arms",n:"Hammer Curl",s:"3x12",e:"Dumbbell"},
+    {m:"Arms",n:"Incline Dumbbell Curl",s:"3x10",e:"Dumbbell"},{m:"Arms",n:"Preacher Curl",s:"3x10",e:"EZ bar"},
+    {m:"Arms",n:"Concentration Curl",s:"3x12",e:"Dumbbell"},{m:"Arms",n:"Cable Curl",s:"3x12",e:"Cable"},
+    {m:"Arms",n:"Close-Grip Bench Press",s:"4x8",e:"Barbell"},{m:"Arms",n:"Skull Crushers",s:"3x10",e:"EZ bar"},
+    {m:"Arms",n:"Overhead Triceps Extension",s:"3x12",e:"Dumbbell"},{m:"Arms",n:"Rope Pushdown",s:"3x12",e:"Cable"},
+    {m:"Arms",n:"Straight-Bar Pushdown",s:"3x12",e:"Cable"},{m:"Arms",n:"Triceps Dips",s:"3x10",e:"Dip bar"},
+    {m:"Arms",n:"Bench Dips",s:"3x12",e:"Bodyweight"},{m:"Arms",n:"Diamond Push-ups",s:"3xAMRAP",e:"Bodyweight"},
+    {m:"Arms",n:"Triceps Kickbacks",s:"3x12",e:"Dumbbell"},{m:"Arms",n:"Reverse Curls",s:"3x12",e:"Barbell"},
+  ],
+  lowerbody:[
+    /* Quads */
+    {m:"Quads",n:"Back Squat",s:"4x5-6",e:"Barbell"},{m:"Quads",n:"Front Squat",s:"4x6",e:"Barbell"},
+    {m:"Quads",n:"Goblet Squat",s:"3x10",e:"Dumbbell"},{m:"Quads",n:"Hack Squat",s:"3x8",e:"Machine"},
+    {m:"Quads",n:"Leg Press",s:"4x10",e:"Machine"},{m:"Quads",n:"Bulgarian Split Squat",s:"3x8 each",e:"Dumbbell"},
+    {m:"Quads",n:"Walking Lunges",s:"3x12 each",e:"Dumbbell"},{m:"Quads",n:"Reverse Lunges",s:"3x10 each",e:"Bodyweight"},
+    {m:"Quads",n:"Step-ups",s:"3x10 each",e:"Box"},{m:"Quads",n:"Leg Extensions",s:"3x12-15",e:"Machine"},
+    {m:"Quads",n:"Sissy Squat",s:"3x10",e:"Bodyweight"},{m:"Quads",n:"Pistol Squat",s:"3x5 each",e:"Bodyweight"},
+    {m:"Quads",n:"Wall Sit",s:"3x45s",e:"Bodyweight"},{m:"Quads",n:"Jump Squats",s:"3x12",e:"Bodyweight"},
+    /* Hamstrings & Glutes */
+    {m:"Hamstrings & Glutes",n:"Romanian Deadlift",s:"4x8",e:"Barbell"},{m:"Hamstrings & Glutes",n:"Sumo Deadlift",s:"4x5",e:"Barbell"},
+    {m:"Hamstrings & Glutes",n:"Stiff-Leg Deadlift",s:"3x8",e:"Barbell"},{m:"Hamstrings & Glutes",n:"Trap Bar Deadlift",s:"4x6",e:"Trap bar"},
+    {m:"Hamstrings & Glutes",n:"Lying Leg Curl",s:"3x10",e:"Machine"},{m:"Hamstrings & Glutes",n:"Seated Leg Curl",s:"3x12",e:"Machine"},
+    {m:"Hamstrings & Glutes",n:"Nordic Curl",s:"3x6",e:"Bodyweight"},{m:"Hamstrings & Glutes",n:"Glute Ham Raise",s:"3x8",e:"GHD"},
+    {m:"Hamstrings & Glutes",n:"Barbell Hip Thrust",s:"4x8",e:"Barbell"},{m:"Hamstrings & Glutes",n:"Glute Bridge",s:"3x15",e:"Bodyweight"},
+    {m:"Hamstrings & Glutes",n:"Single-Leg RDL",s:"3x8 each",e:"Dumbbell"},{m:"Hamstrings & Glutes",n:"Cable Pull-Through",s:"3x12",e:"Cable"},
+    {m:"Hamstrings & Glutes",n:"Kettlebell Swing",s:"3x15",e:"Kettlebell"},{m:"Hamstrings & Glutes",n:"Good Mornings",s:"3x10",e:"Barbell"},
+    /* Calves */
+    {m:"Calves",n:"Standing Calf Raise",s:"4x12-15",e:"Machine"},{m:"Calves",n:"Seated Calf Raise",s:"4x15",e:"Machine"},
+    {m:"Calves",n:"Donkey Calf Raise",s:"3x15",e:"Machine"},{m:"Calves",n:"Single-Leg Calf Raise",s:"3x12 each",e:"Bodyweight"},
+  ],
+  compound:[
+    {n:"Back Squat",s:"5x5",e:"Barbell"},{n:"Conventional Deadlift",s:"5x3",e:"Barbell"},
+    {n:"Bench Press",s:"5x5",e:"Barbell"},{n:"Overhead Press",s:"5x5",e:"Barbell"},
+    {n:"Barbell Row",s:"5x5",e:"Barbell"},{n:"Front Squat",s:"4x5",e:"Barbell"},
+    {n:"Power Clean",s:"5x3",e:"Barbell"},{n:"Hang Clean",s:"4x3",e:"Barbell"},
+    {n:"Clean & Jerk",s:"5x2",e:"Barbell"},{n:"Snatch",s:"5x2",e:"Barbell"},
+    {n:"Push Press",s:"4x5",e:"Barbell"},{n:"Thruster",s:"4x8",e:"Barbell"},
+    {n:"Farmer Carry",s:"4x40m",e:"Dumbbell"},{n:"Turkish Get-Up",s:"3x3 each",e:"Kettlebell"},
+    {n:"Zercher Squat",s:"3x6",e:"Barbell"},{n:"Sled Push",s:"6x20m",e:"Sled"},
+  ],
+  fatburn:[
+    {n:"Burpees",s:"3x15",e:"Bodyweight"},{n:"Jump Squats",s:"3x20",e:"Bodyweight"},
+    {n:"Mountain Climbers",s:"3x40",e:"Bodyweight"},{n:"Jumping Jacks",s:"3x50",e:"Bodyweight"},
+    {n:"High Knees",s:"3x40",e:"Bodyweight"},{n:"Skater Jumps",s:"3x20",e:"Bodyweight"},
+    {n:"Box Jumps",s:"4x10",e:"Box"},{n:"Broad Jumps",s:"3x10",e:"Bodyweight"},
+    {n:"Bear Crawl",s:"3x20m",e:"Bodyweight"},{n:"Sprawls",s:"3x12",e:"Bodyweight"},
+    {n:"Tuck Jumps",s:"3x10",e:"Bodyweight"},{n:"Kettlebell Swings",s:"5x15",e:"Kettlebell"},
+    {n:"Kettlebell Snatch",s:"4x8 each",e:"Kettlebell"},{n:"Battle Ropes",s:"8x30s",e:"Ropes"},
+    {n:"Sled Push",s:"6x20m",e:"Sled"},{n:"Med-Ball Slams",s:"4x12",e:"Med ball"},
+    {n:"Wall Balls",s:"4x15",e:"Med ball"},{n:"Thrusters",s:"4x10",e:"Dumbbell"},
+    {n:"Devil Press",s:"3x8",e:"Dumbbell"},{n:"Double Unders",s:"5x30",e:"Jump rope"},
+  ],
+  cardio:[
+    {n:"Treadmill Intervals",s:"6x(1min hard / 1min easy)",e:"Treadmill"},{n:"Incline Walk",s:"30-40min @ 8-12%",e:"Treadmill"},
+    {n:"Steady Run",s:"30min zone 2",e:"Outdoor"},{n:"Rowing Erg",s:"5x500m",e:"Rower"},
+    {n:"Assault Bike Sprints",s:"10x(20s on / 40s off)",e:"Air bike"},{n:"Spin Bike Steady",s:"30min",e:"Bike"},
+    {n:"Elliptical",s:"35min zone 2",e:"Elliptical"},{n:"Stair Climber",s:"25min",e:"Machine"},
+    {n:"Jump Rope Rounds",s:"10x2min",e:"Jump rope"},{n:"Swimming Laps",s:"20-30min",e:"Pool"},
+    {n:"Shadow Boxing",s:"6x3min",e:"Bodyweight"},{n:"Hiking",s:"60min+",e:"Outdoor"},
+    {n:"Sled Drag",s:"8x30m",e:"Sled"},{n:"Ski Erg",s:"5x400m",e:"Ski erg"},
+  ],
+  running:[
+    {n:"Easy Run",s:"30-45min zone 2",e:"Outdoor"},{n:"Long Run",s:"60-120min",e:"Outdoor"},
+    {n:"Tempo Run",s:"20-30min at threshold",e:"Outdoor"},{n:"400m Repeats",s:"10-12x w/ 400m jog",e:"Track"},
+    {n:"800m Repeats",s:"6-8x w/ 400m jog",e:"Track"},{n:"Mile Repeats",s:"4-5x w/ 3min rest",e:"Track"},
+    {n:"Hill Repeats",s:"8x60-90s",e:"Outdoor"},{n:"Fartlek",s:"8x(3min on / 3min off)",e:"Outdoor"},
+    {n:"Progression Run",s:"40min, finish fast",e:"Outdoor"},{n:"Strides",s:"8x20s",e:"Outdoor"},
+    {n:"Recovery Jog",s:"20-30min very easy",e:"Outdoor"},{n:"Trail Run",s:"45-90min",e:"Trail"},
+  ],
+  cycling:[
+    {n:"Endurance Ride",s:"60-120min zone 2",e:"Bike"},{n:"Tempo Ride",s:"2x20min",e:"Bike"},
+    {n:"Sweet Spot Intervals",s:"3x15min",e:"Bike"},{n:"VO2 Max Intervals",s:"5x4min hard",e:"Bike"},
+    {n:"Hill Repeats",s:"6x4min climb",e:"Bike"},{n:"Sprint Intervals",s:"10x30s all-out",e:"Bike"},
+    {n:"Cadence Drills",s:"6x3min @ 100rpm",e:"Bike"},{n:"Recovery Spin",s:"30min very easy",e:"Bike"},
+    {n:"Spin Class",s:"45-60min",e:"Studio"},{n:"Over-Unders",s:"4x10min",e:"Bike"},
+  ],
+  swimming:[
+    {n:"Freestyle Set",s:"10x100m",e:"Pool"},{n:"Backstroke Set",s:"6x50m",e:"Pool"},
+    {n:"Breaststroke Set",s:"6x50m",e:"Pool"},{n:"Butterfly Set",s:"4x25m",e:"Pool"},
+    {n:"Kick Set",s:"8x50m",e:"Kickboard"},{n:"Pull Set",s:"6x100m",e:"Pull buoy"},
+    {n:"IM Set",s:"4x100m",e:"Pool"},{n:"Sprint 25s",s:"12x25m",e:"Pool"},
+    {n:"Distance Swim",s:"1500-3000m continuous",e:"Pool"},{n:"Hypoxic Set",s:"6x50m breath 3/5/7",e:"Pool"},
+    {n:"Treading Water",s:"5x2min",e:"Pool"},
+  ],
+  other:[
+    {n:"Rowing Erg Steady",s:"30-45min",e:"Rower"},{n:"Ski Erg Steady",s:"20-30min",e:"Ski erg"},
+    {n:"Stair Climber",s:"30min",e:"Machine"},{n:"Elliptical Endurance",s:"45min zone 2",e:"Elliptical"},
+    {n:"Jump Rope Endurance",s:"20-30min",e:"Jump rope"},{n:"Rucking",s:"45-90min weighted",e:"Pack"},
+    {n:"Incline Hike",s:"45min",e:"Outdoor"},{n:"Sled Drag",s:"10x30m",e:"Sled"},
+  ],
+  balanced:[
+    /* Full Body */
+    {m:"Full Body",n:"Goblet Squat",s:"3x12",e:"Dumbbell"},{m:"Full Body",n:"Push-ups",s:"3xAMRAP",e:"Bodyweight"},
+    {m:"Full Body",n:"Dumbbell Row",s:"3x10 each",e:"Dumbbell"},{m:"Full Body",n:"Reverse Lunge",s:"3x10 each",e:"Bodyweight"},
+    {m:"Full Body",n:"Overhead Press",s:"3x10",e:"Dumbbell"},{m:"Full Body",n:"Romanian Deadlift",s:"3x10",e:"Dumbbell"},
+    {m:"Full Body",n:"Pull-ups",s:"3xAMRAP",e:"Bodyweight"},{m:"Full Body",n:"Dips",s:"3x10",e:"Dip bar"},
+    {m:"Full Body",n:"Step-ups",s:"3x10 each",e:"Box"},{m:"Full Body",n:"Kettlebell Swing",s:"3x15",e:"Kettlebell"},
+    {m:"Full Body",n:"Farmer Carry",s:"3x40m",e:"Dumbbell"},{m:"Full Body",n:"Glute Bridge",s:"3x15",e:"Bodyweight"},
+    {m:"Full Body",n:"Burpees",s:"3x10",e:"Bodyweight"},{m:"Full Body",n:"Bear Crawl",s:"3x15m",e:"Bodyweight"},
+    /* Core */
+    {m:"Core",n:"Plank",s:"3x45-60s",e:"Bodyweight"},{m:"Core",n:"Side Plank",s:"3x30s each",e:"Bodyweight"},
+    {m:"Core",n:"Dead Bug",s:"3x12",e:"Bodyweight"},{m:"Core",n:"Bird Dog",s:"3x10 each",e:"Bodyweight"},
+    {m:"Core",n:"Hollow Hold",s:"3x30s",e:"Bodyweight"},{m:"Core",n:"Crunches",s:"3x15",e:"Bodyweight"},
+    {m:"Core",n:"Bicycle Crunch",s:"3x20",e:"Bodyweight"},{m:"Core",n:"Reverse Crunch",s:"3x15",e:"Bodyweight"},
+    {m:"Core",n:"Hanging Knee Raise",s:"3x10",e:"Bar"},{m:"Core",n:"Hanging Leg Raise",s:"3x8",e:"Bar"},
+    {m:"Core",n:"Ab Wheel Rollout",s:"3x8",e:"Wheel"},{m:"Core",n:"Cable Crunch",s:"3x12",e:"Cable"},
+    {m:"Core",n:"Russian Twist",s:"3x20",e:"Bodyweight"},{m:"Core",n:"V-Ups",s:"3x12",e:"Bodyweight"},
+    {m:"Core",n:"Flutter Kicks",s:"3x30s",e:"Bodyweight"},{m:"Core",n:"Pallof Press",s:"3x12 each",e:"Cable"},
+    {m:"Core",n:"Suitcase Carry",s:"3x40m",e:"Dumbbell"},
+  ],
+  recovery:[
+    {n:"Child's Pose",s:"2-3min",e:"Mat"},{n:"Downward Dog",s:"5x30s",e:"Mat"},
+    {n:"Cat-Cow",s:"2x10",e:"Mat"},{n:"Pigeon Pose",s:"2min each side",e:"Mat"},
+    {n:"Cobra Pose",s:"3x30s",e:"Mat"},{n:"Supine Twist",s:"2min each side",e:"Mat"},
+    {n:"Legs Up the Wall",s:"5-10min",e:"Wall"},{n:"Happy Baby",s:"2min",e:"Mat"},
+    {n:"Savasana",s:"5-10min",e:"Mat"},{n:"Box Breathing",s:"5min (4-4-4-4)",e:"None"},
+    {n:"4-7-8 Breathing",s:"8 cycles",e:"None"},{n:"Tai Chi Flow",s:"15-20min",e:"None"},
+    {n:"Easy Walk",s:"20-30min",e:"Outdoor"},{n:"Sauna / Contrast",s:"10-15min",e:"Sauna"},
+  ],
+  mobility:[
+    {n:"World's Greatest Stretch",s:"5 each side",e:"Bodyweight"},{n:"90/90 Hip Switch",s:"2x10",e:"Bodyweight"},
+    {n:"Couch Stretch",s:"90s each side",e:"Wall"},{n:"Deep Squat Hold",s:"3x45s",e:"Bodyweight"},
+    {n:"Cossack Squat",s:"2x8 each",e:"Bodyweight"},{n:"Ankle Rocks",s:"2x12 each",e:"Bodyweight"},
+    {n:"Hip CARs",s:"2x6 each",e:"Bodyweight"},{n:"Shoulder Dislocates",s:"2x12",e:"Band"},
+    {n:"Thoracic Rotations",s:"2x10 each",e:"Bodyweight"},{n:"Wall Slides",s:"2x12",e:"Wall"},
+    {n:"Doorway Pec Stretch",s:"60s each side",e:"Doorway"},{n:"Hamstring Floss",s:"2x10 each",e:"Bodyweight"},
+    {n:"Wrist Circles",s:"2x15",e:"Bodyweight"},{n:"Neck Half-Circles",s:"2x8",e:"Bodyweight"},
+    {n:"Foam Roll Quads & ITB",s:"90s each",e:"Foam roller"},{n:"Foam Roll Upper Back",s:"90s",e:"Foam roller"},
+    {n:"Foam Roll Lats",s:"60s each",e:"Foam roller"},{n:"Lacrosse Ball Glutes",s:"60s each",e:"Ball"},
+  ],
+};
+
+/* ===== FOOD DATABASE · organized by category, per listed serving ===== */
+const FOOD_DB = {
+  Proteins:[
+    {name:"Chicken breast (grilled)",srv:"100g",calories:165,p:31,c:0,f:4},
+    {name:"Chicken thigh (roasted)",srv:"100g",calories:209,p:26,c:0,f:11},
+    {name:"Turkey breast",srv:"100g",calories:135,p:30,c:0,f:1},
+    {name:"Ground beef (90/10)",srv:"100g",calories:176,p:20,c:0,f:10},
+    {name:"Ribeye steak",srv:"100g",calories:271,p:25,c:0,f:19},
+    {name:"Sirloin steak",srv:"100g",calories:206,p:30,c:0,f:9},
+    {name:"Pork chop",srv:"100g",calories:231,p:26,c:0,f:14},
+    {name:"Bacon",srv:"2 slices",calories:90,p:6,c:0,f:7},
+    {name:"Lamb chop",srv:"100g",calories:294,p:25,c:0,f:21},
+    {name:"Salmon (baked)",srv:"100g",calories:208,p:20,c:0,f:13},
+    {name:"Tuna (canned in water)",srv:"100g",calories:116,p:26,c:0,f:1},
+    {name:"Cod",srv:"100g",calories:82,p:18,c:0,f:1},
+    {name:"Shrimp",srv:"100g",calories:99,p:24,c:0,f:0},
+    {name:"Tilapia",srv:"100g",calories:128,p:26,c:0,f:3},
+    {name:"Eggs (whole)",srv:"1 large",calories:72,p:6,c:0,f:5},
+    {name:"Egg whites",srv:"1 cup",calories:117,p:26,c:2,f:0},
+    {name:"Greek yogurt (plain)",srv:"170g",calories:100,p:17,c:6,f:1},
+    {name:"Cottage cheese",srv:"100g",calories:98,p:11,c:3,f:4},
+    {name:"Whey protein",srv:"1 scoop",calories:120,p:24,c:3,f:2},
+    {name:"Tofu (firm)",srv:"100g",calories:144,p:17,c:3,f:9},
+    {name:"Tempeh",srv:"100g",calories:192,p:20,c:8,f:11},
+    {name:"Black beans",srv:"1 cup",calories:227,p:15,c:41,f:1},
+    {name:"Lentils (cooked)",srv:"1 cup",calories:230,p:18,c:40,f:1},
+    {name:"Chickpeas",srv:"1 cup",calories:269,p:15,c:45,f:4},
+    {name:"Edamame",srv:"1 cup",calories:188,p:18,c:14,f:8},
+  ],
+  Vegetables:[
+    {name:"Broccoli (steamed)",srv:"1 cup",calories:55,p:4,c:11,f:1},
+    {name:"Spinach (raw)",srv:"1 cup",calories:7,p:1,c:1,f:0},
+    {name:"Kale",srv:"1 cup",calories:33,p:3,c:6,f:1},
+    {name:"Carrots",srv:"1 cup",calories:52,p:1,c:12,f:0},
+    {name:"Bell pepper",srv:"1 medium",calories:31,p:1,c:7,f:0},
+    {name:"Sweet potato (baked)",srv:"1 medium",calories:112,p:2,c:26,f:0},
+    {name:"Potato (baked)",srv:"1 medium",calories:161,p:4,c:37,f:0},
+    {name:"Cauliflower",srv:"1 cup",calories:27,p:2,c:5,f:0},
+    {name:"Zucchini",srv:"1 cup",calories:21,p:2,c:4,f:0},
+    {name:"Asparagus",srv:"1 cup",calories:27,p:3,c:5,f:0},
+    {name:"Green beans",srv:"1 cup",calories:31,p:2,c:7,f:0},
+    {name:"Brussels sprouts",srv:"1 cup",calories:38,p:3,c:8,f:0},
+    {name:"Tomato",srv:"1 medium",calories:22,p:1,c:5,f:0},
+    {name:"Cucumber",srv:"1 cup",calories:16,p:1,c:4,f:0},
+    {name:"Mushrooms",srv:"1 cup",calories:15,p:2,c:2,f:0},
+    {name:"Onion",srv:"1 medium",calories:44,p:1,c:10,f:0},
+    {name:"Corn",srv:"1 cup",calories:132,p:5,c:29,f:2},
+    {name:"Peas",srv:"1 cup",calories:118,p:8,c:21,f:1},
+    {name:"Avocado",srv:"1/2 medium",calories:120,p:1,c:6,f:11},
+    {name:"Mixed salad greens",srv:"2 cups",calories:15,p:1,c:3,f:0},
+  ],
+  Fruits:[
+    {name:"Banana",srv:"1 medium",calories:105,p:1,c:27,f:0},
+    {name:"Apple",srv:"1 medium",calories:95,p:0,c:25,f:0},
+    {name:"Orange",srv:"1 medium",calories:62,p:1,c:15,f:0},
+    {name:"Strawberries",srv:"1 cup",calories:49,p:1,c:12,f:0},
+    {name:"Blueberries",srv:"1 cup",calories:84,p:1,c:21,f:0},
+    {name:"Raspberries",srv:"1 cup",calories:64,p:1,c:15,f:1},
+    {name:"Grapes",srv:"1 cup",calories:104,p:1,c:27,f:0},
+    {name:"Pineapple",srv:"1 cup",calories:82,p:1,c:22,f:0},
+    {name:"Mango",srv:"1 cup",calories:99,p:1,c:25,f:1},
+    {name:"Watermelon",srv:"1 cup",calories:46,p:1,c:12,f:0},
+    {name:"Grapefruit",srv:"1/2 medium",calories:52,p:1,c:13,f:0},
+    {name:"Peach",srv:"1 medium",calories:59,p:1,c:14,f:0},
+    {name:"Pear",srv:"1 medium",calories:101,p:1,c:27,f:0},
+    {name:"Kiwi",srv:"1 medium",calories:42,p:1,c:10,f:0},
+    {name:"Cherries",srv:"1 cup",calories:87,p:1,c:22,f:0},
+    {name:"Pomegranate",srv:"1/2 cup",calories:72,p:1,c:16,f:1},
+    {name:"Dates",srv:"2 pieces",calories:133,p:1,c:36,f:0},
+    {name:"Raisins",srv:"1/4 cup",calories:108,p:1,c:29,f:0},
+  ],
+  Grains:[
+    {name:"White rice (cooked)",srv:"1 cup",calories:205,p:4,c:45,f:0},
+    {name:"Brown rice (cooked)",srv:"1 cup",calories:216,p:5,c:45,f:2},
+    {name:"Quinoa (cooked)",srv:"1 cup",calories:222,p:8,c:39,f:4},
+    {name:"Oatmeal (cooked)",srv:"1 cup",calories:166,p:6,c:28,f:4},
+    {name:"Whole wheat bread",srv:"1 slice",calories:81,p:4,c:14,f:1},
+    {name:"White bread",srv:"1 slice",calories:79,p:3,c:15,f:1},
+    {name:"Bagel",srv:"1 medium",calories:245,p:10,c:48,f:2},
+    {name:"Pasta (cooked)",srv:"1 cup",calories:221,p:8,c:43,f:1},
+    {name:"Whole wheat pasta",srv:"1 cup",calories:174,p:7,c:37,f:1},
+    {name:"Couscous",srv:"1 cup",calories:176,p:6,c:36,f:0},
+    {name:"Tortilla (flour)",srv:"1 medium",calories:138,p:4,c:23,f:4},
+    {name:"Corn tortilla",srv:"1 small",calories:52,p:1,c:11,f:1},
+    {name:"Cereal (corn flakes)",srv:"1 cup",calories:100,p:2,c:24,f:0},
+    {name:"Granola",srv:"1/2 cup",calories:299,p:8,c:32,f:15},
+    {name:"Rice cake",srv:"1 piece",calories:35,p:1,c:7,f:0},
+    {name:"Crackers",srv:"5 pieces",calories:80,p:1,c:11,f:3},
+  ],
+  Dairy:[
+    {name:"Whole milk",srv:"1 cup",calories:149,p:8,c:12,f:8},
+    {name:"Skim milk",srv:"1 cup",calories:83,p:8,c:12,f:0},
+    {name:"Almond milk (unsweetened)",srv:"1 cup",calories:30,p:1,c:1,f:3},
+    {name:"Oat milk",srv:"1 cup",calories:120,p:3,c:16,f:5},
+    {name:"Cheddar cheese",srv:"1 oz",calories:113,p:7,c:0,f:9},
+    {name:"Mozzarella",srv:"1 oz",calories:85,p:6,c:1,f:6},
+    {name:"Parmesan",srv:"1 tbsp",calories:21,p:2,c:0,f:1},
+    {name:"Feta cheese",srv:"1 oz",calories:75,p:4,c:1,f:6},
+    {name:"Cream cheese",srv:"1 tbsp",calories:51,p:1,c:1,f:5},
+    {name:"Butter",srv:"1 tbsp",calories:102,p:0,c:0,f:12},
+    {name:"Yogurt (low-fat)",srv:"1 cup",calories:154,p:13,c:17,f:4},
+    {name:"Sour cream",srv:"2 tbsp",calories:46,p:1,c:1,f:5},
+    {name:"Ice cream (vanilla)",srv:"1/2 cup",calories:137,p:2,c:16,f:7},
+  ],
+  "Nuts & Fats":[
+    {name:"Almonds",srv:"1 oz",calories:164,p:6,c:6,f:14},
+    {name:"Walnuts",srv:"1 oz",calories:185,p:4,c:4,f:18},
+    {name:"Cashews",srv:"1 oz",calories:157,p:5,c:9,f:12},
+    {name:"Peanuts",srv:"1 oz",calories:161,p:7,c:5,f:14},
+    {name:"Peanut butter",srv:"2 tbsp",calories:188,p:8,c:6,f:16},
+    {name:"Almond butter",srv:"2 tbsp",calories:196,p:7,c:6,f:18},
+    {name:"Olive oil",srv:"1 tbsp",calories:119,p:0,c:0,f:14},
+    {name:"Coconut oil",srv:"1 tbsp",calories:121,p:0,c:0,f:14},
+    {name:"Chia seeds",srv:"1 tbsp",calories:58,p:2,c:5,f:4},
+    {name:"Flax seeds",srv:"1 tbsp",calories:55,p:2,c:3,f:4},
+    {name:"Pumpkin seeds",srv:"1 oz",calories:151,p:7,c:5,f:13},
+    {name:"Sunflower seeds",srv:"1 oz",calories:165,p:6,c:6,f:14},
+    {name:"Hummus",srv:"2 tbsp",calories:70,p:2,c:6,f:5},
+  ],
+  "Sauces & Condiments":[
+    {name:"Ketchup",srv:"1 tbsp",calories:17,p:0,c:5,f:0},
+    {name:"Mustard",srv:"1 tbsp",calories:9,p:1,c:1,f:0},
+    {name:"Mayonnaise",srv:"1 tbsp",calories:94,p:0,c:0,f:10},
+    {name:"BBQ sauce",srv:"2 tbsp",calories:58,p:0,c:14,f:0},
+    {name:"Soy sauce",srv:"1 tbsp",calories:8,p:1,c:1,f:0},
+    {name:"Hot sauce",srv:"1 tsp",calories:1,p:0,c:0,f:0},
+    {name:"Ranch dressing",srv:"2 tbsp",calories:129,p:0,c:2,f:13},
+    {name:"Italian dressing",srv:"2 tbsp",calories:71,p:0,c:3,f:7},
+    {name:"Vinaigrette",srv:"2 tbsp",calories:88,p:0,c:3,f:8},
+    {name:"Salsa",srv:"2 tbsp",calories:10,p:0,c:2,f:0},
+    {name:"Marinara sauce",srv:"1/2 cup",calories:80,p:2,c:12,f:3},
+    {name:"Pesto",srv:"2 tbsp",calories:160,p:3,c:2,f:16},
+    {name:"Honey",srv:"1 tbsp",calories:64,p:0,c:17,f:0},
+    {name:"Maple syrup",srv:"1 tbsp",calories:52,p:0,c:13,f:0},
+    {name:"Sriracha",srv:"1 tsp",calories:5,p:0,c:1,f:0},
+    {name:"Teriyaki sauce",srv:"1 tbsp",calories:16,p:1,c:3,f:0},
+    {name:"Guacamole",srv:"2 tbsp",calories:50,p:1,c:3,f:5},
+  ],
+  "Snacks & Sweets":[
+    {name:"Dark chocolate",srv:"1 oz",calories:155,p:2,c:13,f:9},
+    {name:"Milk chocolate",srv:"1 oz",calories:152,p:2,c:17,f:8},
+    {name:"Potato chips",srv:"1 oz",calories:152,p:2,c:15,f:10},
+    {name:"Pretzels",srv:"1 oz",calories:108,p:3,c:23,f:1},
+    {name:"Popcorn (air-popped)",srv:"3 cups",calories:93,p:3,c:19,f:1},
+    {name:"Protein bar",srv:"1 bar",calories:200,p:20,c:22,f:7},
+    {name:"Granola bar",srv:"1 bar",calories:120,p:2,c:21,f:4},
+    {name:"Trail mix",srv:"1/4 cup",calories:173,p:5,c:16,f:11},
+    {name:"Cookie (chocolate chip)",srv:"1 medium",calories:78,p:1,c:10,f:4},
+    {name:"Donut (glazed)",srv:"1 piece",calories:269,p:4,c:31,f:15},
+    {name:"Muffin (blueberry)",srv:"1 medium",calories:265,p:4,c:47,f:7},
+    {name:"Crackers & cheese",srv:"1 pack",calories:190,p:5,c:18,f:11},
+  ],
+  Beverages:[
+    {name:"Coffee (black)",srv:"1 cup",calories:2,p:0,c:0,f:0},
+    {name:"Latte (whole milk)",srv:"12 oz",calories:180,p:9,c:15,f:9},
+    {name:"Orange juice",srv:"1 cup",calories:112,p:2,c:26,f:0},
+    {name:"Apple juice",srv:"1 cup",calories:114,p:0,c:28,f:0},
+    {name:"Soda (cola)",srv:"12 oz",calories:140,p:0,c:39,f:0},
+    {name:"Diet soda",srv:"12 oz",calories:0,p:0,c:0,f:0},
+    {name:"Beer",srv:"12 oz",calories:153,p:2,c:13,f:0},
+    {name:"Wine (red)",srv:"5 oz",calories:125,p:0,c:4,f:0},
+    {name:"Sports drink",srv:"12 oz",calories:80,p:0,c:21,f:0},
+    {name:"Protein shake (premade)",srv:"1 bottle",calories:160,p:30,c:5,f:3},
+    {name:"Smoothie (fruit)",srv:"16 oz",calories:250,p:5,c:55,f:2},
+    {name:"Kombucha",srv:"1 cup",calories:30,p:0,c:7,f:0},
+    {name:"Coconut water",srv:"1 cup",calories:46,p:2,c:9,f:0},
+  ],
+  "Meals & Dishes":[
+    {name:"Chicken Caesar salad",srv:"1 bowl",calories:470,p:35,c:12,f:32},
+    {name:"Cheeseburger",srv:"1 burger",calories:535,p:30,c:40,f:28},
+    {name:"Margherita pizza",srv:"2 slices",calories:500,p:20,c:62,f:18},
+    {name:"Spaghetti bolognese",srv:"1 plate",calories:560,p:25,c:70,f:20},
+    {name:"Sushi roll (salmon)",srv:"8 pieces",calories:350,p:14,c:55,f:8},
+    {name:"Chicken burrito",srv:"1 burrito",calories:620,p:35,c:70,f:22},
+    {name:"Pad Thai",srv:"1 plate",calories:560,p:20,c:80,f:18},
+    {name:"Greek salad",srv:"1 bowl",calories:230,p:7,c:13,f:18},
+    {name:"Grilled chicken & rice",srv:"1 plate",calories:480,p:42,c:50,f:10},
+    {name:"Oatmeal with berries",srv:"1 bowl",calories:310,p:10,c:55,f:6},
+    {name:"Avocado toast",srv:"2 slices",calories:290,p:8,c:30,f:16},
+    {name:"Protein pancakes",srv:"3 cakes",calories:350,p:25,c:40,f:9},
+    {name:"Beef stir-fry",srv:"1 plate",calories:430,p:30,c:35,f:18},
+    {name:"Lentil soup",srv:"1 bowl",calories:230,p:15,c:35,f:4},
+    {name:"Tuna sandwich",srv:"1 sandwich",calories:380,p:25,c:38,f:14},
+  ],
+};
+
+const FOODS = [
+  {name:"Oatmeal with berries",calories:310,p:10,c:55,f:6},{name:"Grilled chicken breast",calories:220,p:42,c:0,f:5},
+  {name:"Brown rice (1 cup)",calories:215,p:5,c:45,f:2},{name:"Greek yogurt",calories:130,p:17,c:9,f:0},
+  {name:"Banana",calories:105,p:1,c:27,f:0},{name:"Protein shake",calories:160,p:30,c:8,f:3},
+  {name:"Almonds (1oz)",calories:164,p:6,c:6,f:14},{name:"Salmon fillet",calories:280,p:39,c:0,f:13},
+];
+
+/* ================= STATE ================= */
+const state = {
+  goal:null, plan:null, done:[],
+  meals:{ Breakfast:[], Lunch:[], Dinner:[], Snack:[] },  /* logged food per meal */
+  recents:[], favorites:[], customFoods:[],
+  foodCat:'All', foodQuery:'',
+  activeMeal:'Breakfast',      /* which meal we're logging into */
+  sheet:null,                  /* food-detail sheet: {food, qty} or null */
+  foodView:'browse',           /* browse | recents | favorites */
+};
+const ALL_FOODS = Object.entries(FOOD_DB).flatMap(([cat, items]) => items.map(f => ({...f, cat})));
+const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ====== LIVING BACKGROUND · raytraced black hole with gravitational lensing ======
+   Light rays are bent through a Schwarzschild-style geodesic approximation, so the
+   far side of the disk appears folded above and below the hole — like the real thing.
+   axes: X = clicks (full 360° flip) · Y = slow ambient · Z = scroll only */
+let curScroll = 0, pullKick = 0;
+
+if (window.THREE) {
+  const canvas = document.getElementById('bhCanvas');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias:false, powerPreference:'high-performance' });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+  renderer.setClearColor(0x0d0f14, 1);
+  const RES_SCALE = 0.85;               /* render scale; aura + dither hide the rest */
+  const scene = new THREE.Scene();
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+  const uniforms = {
+    uTime: { value: 0 },
+    uRes:  { value: new THREE.Vector2(1, 1) },
+    uRoll: { value: 0 },
+    uRot:  { value: new THREE.Matrix3() },
+    uPulse:{ value: 0 },
+    uDist: { value: 12.5 },
+  };
+
+  const frag = `
+uniform vec2 uRes; uniform float uTime; uniform float uRoll; uniform mat3 uRot; uniform float uPulse; uniform float uDist;
+
+float hash(vec2 p){ p = fract(p*vec2(123.34,345.45)); p += dot(p,p+34.345); return fract(p.x*p.y); }
+float noise(vec2 p){
+  vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
+  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y);
+}
+float fbm(vec2 p){ float v=0., a=.55; for(int i=0;i<6;i++){ v += a*noise(p); p = p*2.07 + 1.3; a *= .52; } return v; }
+
+/* ---------- (1,9) lensed deep sky: layered stars + galaxies, drift at 0.05x ---------- */
+vec3 sky(vec3 d){
+  vec2 sph = vec2(atan(d.z,d.x), asin(clamp(d.y,-1.,1.)));
+  sph.x += uTime*0.005;                              /* Layer: background stars 0.05x */
+  vec3 col = vec3(0.);
+  for(float l=1.; l<4.5; l++){
+    vec2 g = sph*vec2(45.,28.)*l;
+    vec2 id = floor(g), f = fract(g)-.5;
+    float h = hash(id + l*17.3);
+    vec2 off = (vec2(hash(id+3.1),hash(id+9.7))-.5)*.7;
+    float tw = .6 + .4*sin(uTime*2. + h*30.);
+    float s = smoothstep(.07,.0,length(f-off)) * step(.972,h) * tw;
+    col += s*(.35+.65*hash(id+5.))*mix(vec3(.70,.80,1.),vec3(1.,.80,.58),hash(id+7.))/l;
+  }
+  /* brilliant glowers */
+  {
+    vec2 g = sph*vec2(9.,6.); vec2 id = floor(g), f = fract(g)-.5;
+    float h = hash(id+31.7);
+    if(h > .93){
+      vec2 off = (vec2(hash(id+1.3),hash(id+8.2))-.5)*.6; float dd = length(f-off);
+      vec3 tint = mix(vec3(.75,.85,1.), vec3(1.,.85,.60), hash(id+4.4));
+      col += tint * (smoothstep(.05,.0,dd)*1.2 + exp(-dd*22.)*.5);
+    }
+  }
+  /* distant galaxies */
+  {
+    vec2 g = sph*vec2(6.,4.); vec2 id = floor(g), f = fract(g)-.5;
+    float h = hash(id+57.9);
+    if(h > .90){
+      vec2 off = (vec2(hash(id+2.6),hash(id+6.1))-.5)*.5;
+      float ang = hash(id+9.9)*6.283; vec2 q = f-off;
+      q = mat2(cos(ang),-sin(ang),sin(ang),cos(ang))*q;
+      q.y *= 2.6 + 2.0*hash(id+12.);
+      float dd = length(q);
+      float body = exp(-dd*9.)*.55 + exp(-dd*30.)*.6;
+      body *= .75 + .5*fbm(q*14. + id);
+      vec3 tint = mix(vec3(.72,.78,1.), vec3(1.,.86,.70), hash(id+15.));
+      col += tint * body * .5;
+    }
+  }
+  /* faint galaxy band */
+  {
+    float band = pow(max(1. - abs(d.y*.82 + d.x*.35), 0.), 5.);
+    float gran = fbm(sph*vec2(14.,9.) + 3.7);
+    col += vec3(.55,.58,.70) * band * gran * .10;
+    col += vec3(.85,.75,.62) * band * pow(gran,3.) * .12;
+  }
+  return col;
+}
+
+/* ---------- (2,3,8,9) razor-thin accretion disk ---------- */
+/* returns emission; alpha via out. r in disk-plane radius, a azimuth, vel for Doppler */
+vec3 disk(float r, float a, vec3 vel, out float alpha){
+  float rin = 2.15, rout = 7.6;
+  float t = clamp((r-rin)/(rout-rin), 0., 1.);
+
+  /* (9) layered orbital speeds: inner gas 1.2x, outer gas 0.5x — Keplerian blend */
+  float inner = uTime * 1.2 / pow(r, 1.5);
+  float outer = uTime * 0.5 / pow(r, 1.1);
+  float rot = mix(inner, outer, t);
+
+  /* (8) heat turbulence — multi-octave fbm advected inward (dust spirals in, 0.3x) */
+  float rIn = r + uTime*0.30;
+  float n1 = fbm(vec2(rIn*9.0,  (a+rot)*1.7));
+  float n2 = fbm(vec2(rIn*17.0, (a+rot*1.1)*2.6));
+  float turb = .45 + .75*n1 + .30*n2;
+
+  /* fine combed striations sheared by rotation */
+  float striae = .5 + .5*sin(rIn*46.0 + n1*7.0 + (a+rot)*3.0);
+  turb *= mix(.66, 1.28, striae);
+
+  /* spiral arms */
+  float streak = .5 + .5*sin(a*5.0 + rot*2.0 + r*2.3);
+  turb *= mix(.72, 1.24, streak);
+
+  /* (2) RAZOR profile: brightness peaks in a thin radial band, sharp inner edge,
+     long faded outer tail — a bright line, not a fat blur */
+  float radial = smoothstep(0., .04, t) * pow(1.0 - t, 1.7);
+  float bright = radial * turb;
+
+  /* temperature ramp: white-hot inner -> ember outer */
+  float temp = pow(1.-t, 1.4);
+  vec3 hot  = vec3(1.0,.99,.97);
+  vec3 warm = vec3(1.0,.80,.52);
+  vec3 cool = vec3(.85,.42,.16);
+  vec3 c = mix(cool, warm, smoothstep(0.,.5,temp));
+  c = mix(c, hot, smoothstep(.5,1.,temp));
+
+  /* (3) DOPPLER: side rotating toward camera is far brighter + blue-shifted */
+  vec3 tangent = normalize(vec3(-sin(a), 0., cos(a)));   /* orbital velocity dir */
+  float beam = dot(tangent, -normalize(vel));
+  float dop = 1. + 0.8*beam;                              /* strong asymmetry */
+  float boost = pow(max(dop, .15), 3.2);                  /* relativistic beaming */
+  c = mix(c, c*vec3(.8,.9,1.15), clamp(beam,0.,1.)*.4);   /* subtle blueshift */
+
+  float flare = 1. + .35*uPulse*temp;
+  alpha = bright * 1.15;
+  return c * bright * (1. + 3.0*temp) * boost * flare;
+}
+
+void main(){
+  vec2 px = gl_FragCoord.xy;
+  vec2 p = (px*2. - uRes) / uRes.y;
+  float cr = cos(uRoll), sr = sin(uRoll);
+  p = mat2(cr,-sr,sr,cr) * p;
+  float sa = atan(p.y, p.x);
+
+  /* (10) subtle camera drift — tiny parallax + breathing zoom, hole barely moves */
+  vec2 drift = vec2(sin(uTime*0.13), cos(uTime*0.11)) * 0.012;
+  float zoom = 1.0 + sin(uTime*0.07)*0.015;
+
+  vec3 ro = vec3(0., 0., uDist);
+  vec3 rd = normalize(vec3((p+drift)*zoom, -2.05));
+  ro = uRot * ro;  rd = uRot * rd;
+
+  vec3 pos = ro, vel = rd;
+  vec3 hv = cross(pos, vel);
+  float h2 = dot(hv,hv);
+
+  vec3 col = vec3(0.);
+  float trans = 1.;
+  float minR = 1e4;
+  bool captured = false;
+
+  /* (1) geodesic integration — bends both disk hits AND the background sky,
+     wrapping stars around the shadow like an infinite fisheye */
+  for(int i=0; i<260; i++){
+    float r = length(pos);
+    minR = min(minR, r);
+    if(r < 1.0){ captured = true; break; }     /* (5) crossed horizon */
+    if(r > 34.) break;
+
+    float dt = clamp(.14*(r-.8), .028, .40);
+    vec3 acc = -1.5 * h2 * pos / pow(r*r, 2.5);
+    vec3 npos = pos + vel*dt;
+    vec3 nvel = vel + acc*dt;
+
+    if(pos.y * npos.y < 0.){
+      float k = pos.y / (pos.y - npos.y);
+      vec3 hit = mix(pos, npos, k);
+      float hr = length(hit.xz);
+      if(hr > 2.15 && hr < 7.6){
+        float aA;
+        vec3 dc = disk(hr, atan(hit.z, hit.x), vel, aA);
+        col += trans * aA * dc;
+        trans *= (1. - clamp(aA,0.,1.));
+        if(trans < .02) break;
+      }
+    }
+    pos = npos; vel = nvel;
+  }
+
+  /* lensed background sky through the bent ray */
+  if(!captured && trans > .02) col += trans * sky(normalize(vel)) * 1.15;
+
+  /* (4) PHOTON RING: tiny, extremely bright, near-white ring hugging the shadow.
+     light that grazed the photon sphere piles up here */
+  if(!captured){
+    float graze = max(minR - 1.0, 0.);
+    /* the thin bright ring — very sharp */
+    float ring = exp(-graze*graze*140.);
+    float shimmer = .9 + .2*noise(vec2(sa*3.0 + uTime*.2, uTime*.5));
+    col += vec3(1.,.98,.94) * ring * (2.2 + .4*uPulse) * shimmer;
+    /* faint outer glow only (kept subtle so the ring reads as thin) */
+    col += vec3(1.,.62,.30) * exp(-graze*2.4) * .28;
+    col += vec3(1.,.5,.2)  * exp(-graze*.9) * .06;
+  }
+
+  /* (7) plasma flares: rare bright streaks off the disk, ~one per 6-10s */
+  {
+    float seed = floor(uTime/7.0);
+    float ft = fract(uTime/7.0);
+    float life = sin(ft*3.14159);                    /* rise and fall */
+    float fa = hash(vec2(seed,1.3))*6.283;           /* random azimuth */
+    float fr = 2.4 + hash(vec2(seed,4.7))*3.5;       /* random radius   */
+    vec3 fp = vec3(cos(fa)*fr, 0., sin(fa)*fr);
+    /* project flare to a screen-ish glow via its lensed direction from origin */
+    vec3 fdir = normalize(fp - ro);
+    float d = max(dot(normalize(rd), fdir), 0.);
+    float streak = pow(d, 900.) * life;
+    col += mix(vec3(1.,.6,.25), vec3(1.,.95,.85), hash(vec2(seed,9.1))) * streak * 1.4;
+  }
+
+  /* (5) PURE BLACK CENTER — absolute, no texture, no gradient */
+  if(captured){ gl_FragColor = vec4(0.,0.,0.,1.); return; }
+
+  col = 1.0 - exp(-col * 1.5);                        /* filmic exposure */
+  col = pow(col, vec3(.92));
+  float dither = (hash(px) - .5) / 255.;
+  col += dither;
+  gl_FragColor = vec4(col, 1.);
+}
+`;
+
+  scene.add(new THREE.Mesh(
+    new THREE.PlaneGeometry(2, 2),
+    new THREE.ShaderMaterial({
+      fragmentShader: frag,
+      vertexShader: 'void main(){ gl_Position = vec4(position.xy, 0., 1.); }',
+      uniforms, depthWrite: false, depthTest: false,
+    })
+  ));
+
+  const dbs = new THREE.Vector2();
+  function sizeRenderer(){
+    renderer.setSize(innerWidth*RES_SCALE, innerHeight*RES_SCALE, false);
+    renderer.getDrawingBufferSize(dbs);
+    uniforms.uRes.value.copy(dbs);
+  }
+  sizeRenderer();
+  addEventListener('resize', sizeRenderer);
+
+  const BASE_TILT = -0.19;             /* just above the plane, like the reference */
+  const eul = new THREE.Euler(), m4 = new THREE.Matrix4();
+
+  /* smoothed drivers — these chase their targets so motion is never abrupt */
+  let rollSmooth = 0;        // eased banking roll
+  let ySmooth = 0;           // continuous orbital pan (Y)
+  let distSmooth = 12.5;     // eased camera distance (gravitational pull-in)
+  let orbitSmooth = 0;       // scroll-driven spiral angle around the hole
+  let lastT = performance.now();
+
+  /* frame-rate-independent smoothing: factor based on elapsed time */
+  function damp(cur, target, lambda, dt){
+    return target + (cur - target) * Math.exp(-lambda * dt);
+  }
+
+  function frame(t){
+    const dt = Math.min((t - lastT) / 1000, 0.05);   // seconds, capped
+    lastT = t;
+
+    /* THE SPIRAL: scrolling swirls you around the outside of the hole while
+       the pull below drags you inward — a corkscrew descent toward the horizon */
+    const orbitTarget = curScroll * .0026;
+    orbitSmooth = damp(orbitSmooth, orbitTarget, 5.0, dt);
+    /* bank into the turn while actively spiraling, level out when you stop */
+    const bank = Math.max(Math.min((orbitTarget - orbitSmooth) * .5, .14), -.14);
+    rollSmooth = damp(rollSmooth, bank, 6.0, dt);
+
+    /* THE SLOW SUCK (Z axis): the camera drifts inexorably toward the hole
+       over time; scrolling and page taps pull it deeper; it breathes gently
+       against the pull like fighting the gravity — and never quite escapes */
+    pullKick = damp(pullKick, 0, 3.2, dt);
+    const infall  = 13.6 - 3.4 * (1 - Math.exp(-(t * .001) / 50));  /* asymptotic fall */
+    const breathe = Math.sin(t * 0.0006) * 0.18;
+    const distTarget = Math.max(
+      infall + breathe - Math.min(curScroll * .006, 3.4) - pullKick * 2.3,
+      8.8);                                          /* deep, but never through the disk */
+    distSmooth = damp(distSmooth, distTarget, 5.5, dt);
+    uniforms.uDist.value = distSmooth;
+
+    /* ambient orbit: a slow continuous pan around the black hole,
+       nudged a little faster while you scroll */
+    ySmooth += dt * 0.004;               /* barely-there drift; shader animates space */
+
+    /* gentle breathing tilt so the resting view is never frozen */
+    const breath = Math.sin(t * 0.00035) * 0.012;
+
+    const spiralPitch = (13.6 - distSmooth) * .018;  /* look down more as you sink */
+    eul.set(BASE_TILT + breath - spiralPitch,  /* X: tilt deepens with the descent */
+            ySmooth + orbitSmooth,             /* Y: idle drift + scroll spiral    */
+            0, 'YXZ');
+    m4.makeRotationFromEuler(eul);
+    uniforms.uRot.value.setFromMatrix4(m4);
+    uniforms.uRoll.value = rollSmooth;
+    uniforms.uTime.value = t * .001;
+    uniforms.uPulse.value = 0.5 + 0.5 * Math.sin(t * 0.0007);     /* slow flare pulse */
+    renderer.render(scene, camera);
+    if (!RM) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ================= PAGE SYSTEM ================= */
+const stage = document.getElementById('stage');
+const crumb = document.getElementById('crumb');
+const backBtn = document.getElementById('back');
+const io = new IntersectionObserver(
+  es => {
+    /* reveal in document order with a gentle stagger for a flowing cascade */
+    const entering = es.filter(e => e.isIntersecting).sort((a,b) =>
+      a.boundingClientRect.top - b.boundingClientRect.top);
+    entering.forEach((e, idx) => {
+      e.target.style.transitionDelay = Math.min(idx * 0.05, 0.3) + 's';
+      e.target.classList.add('visible');
+    });
+    es.filter(e => !e.isIntersecting).forEach(e => {
+      e.target.style.transitionDelay = '0s';
+      e.target.classList.remove('visible');
+    });
+  },
+  { threshold: 0.1 }
+);
+let stack = [];
+let current = null;
+
+function mountPage(entry, dir){
+  const page = document.createElement('div');
+  page.className = 'page ' + (dir === 1 ? 'enter-r' : dir === -1 ? 'enter-l' : 'live');
+  page.innerHTML = `<div class="wrap">${entry.build()}</div>`;
+  stage.appendChild(page);
+  page.addEventListener('scroll', () => { curScroll = page.scrollTop; }, { passive:true });
+  page.querySelectorAll('.rv,.rv-l,.rv-r').forEach(el => io.observe(el));
+  bindActions(page);
+  bindFoodSearch(page);
+
+  const old = current;
+  current = page;
+  curScroll = 0;
+
+  if (dir !== 0){
+    pullKick = 1;                            /* every page change pulls you closer */
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      page.classList.remove('enter-r','enter-l');
+      page.classList.add('live');
+      if (old){
+        old.classList.remove('live');
+        old.classList.add(dir === 1 ? 'exit-l' : 'exit-r');
+        setTimeout(() => { old.querySelectorAll('.rv,.rv-l,.rv-r').forEach(el => io.unobserve(el)); old.remove(); }, RM ? 0 : 900);
+      }
+    }));
+  }
+  crumb.textContent = entry.title;
+  backBtn.classList.toggle('show', stack.length > 1);
+}
+function nav(title, build){ stack.push({title, build}); mountPage(stack[stack.length-1], 1); }
+function goBack(){
+  if (stack.length < 2) return;
+  stack.pop();
+  mountPage(stack[stack.length-1], -1);
+}
+backBtn.addEventListener('click', goBack);
+
+function refresh(){
+  const entry = stack[stack.length-1];
+  current.querySelector('.wrap').innerHTML = entry.build();
+  current.querySelectorAll('.rv,.rv-l,.rv-r').forEach(el => el.classList.add('visible'));
+  bindActions(current);
+}
+
+/* ================= ACTIONS ================= */
+function readAbout(page){
+  const d = state.draft;
+  ['name','age','h','ft','in','w'].forEach(k => {
+    const el = page.querySelector('#f-' + k);
+    if (el) d[k === 'in' ? 'inch' : k] = el.value;
+  });
+}
+function bindActions(page){
+  page.querySelectorAll('[data-act]').forEach(el => {
+    el.addEventListener('click', () => {
+      const a = el.dataset;
+      /* every interaction tugs you closer to the hole */
+      pullKick = Math.min(pullKick + 0.3, 1);
+      if (a.act === 'open')      ROUTES[a.route](a);
+      /* ---- food logging ---- */
+      if (a.act === 'openFood') {          /* open the detail sheet for a food */
+        const f = findFood(decodeURIComponent(a.fname));
+        if (f) { state.sheet = { food:f, qty:1 }; refreshFoodOnly(); }
+      }
+      if (a.act === 'closeSheet'){ state.sheet = null; refreshFoodOnly(); }
+      if (a.act === 'qtyStep')  {          /* +/- serving stepper */
+        if (state.sheet){
+          state.sheet.qty = Math.max(0.25, Math.round((state.sheet.qty + (+a.d))*100)/100);
+          refreshFoodOnly();
+        }
+      }
+      if (a.act === 'qtyPreset'){ if (state.sheet){ state.sheet.qty = +a.q; refreshFoodOnly(); } }
+      if (a.act === 'confirmAdd'){          /* log the food into the active meal */
+        if (state.sheet){
+          const entry = { food: state.sheet.food, qty: state.sheet.qty };
+          state.meals[state.activeMeal].push(entry);
+          pushRecent(state.sheet.food);
+          state.sheet = null;
+          refreshFoodOnly();
+        }
+      }
+      if (a.act === 'rmFood')   {           /* remove from a meal */
+        state.meals[a.meal].splice(+a.i,1); refreshFoodOnly();
+      }
+      if (a.act === 'toggleFav'){
+        const f = findFood(decodeURIComponent(a.fname)); toggleFav(f); refreshFoodOnly();
+      }
+      if (a.act === 'setFoodCat'){ state.foodCat = a.cat; state.foodQuery=''; refreshFoodOnly(); }
+      if (a.act === 'setMeal')  { state.activeMeal = a.meal; refreshFoodOnly(); }
+      if (a.act === 'setFoodView'){ state.foodView = a.view; state.foodQuery=''; refreshFoodOnly(); }
+      if (a.act === 'saveCustom'){ saveCustomFromForm(); }
+      if (a.act === 'complete')  {
+        const name = decodeURIComponent(a.wname);
+        const spec = WORKOUTS_SPECIALIZED[a.g];
+        let w = null;
+        for (const cat of Object.values(spec)) {
+          w = cat.find(x => x.name === name);
+          if (w) break;
+        }
+        if (w) {
+          state.done.push(w);
+          el.textContent = '✓ Logged'; el.style.background = 'var(--ember)';
+          setTimeout(goBack, 650);
+        }
+      }
+      /* --- analysis wizard --- */
+      if (a.act === 'wizGoal')  { state.draft = { goal:a.id, units:'metric' }; nav('About You', pageAbout); }
+      if (a.act === 'wizSex')   { readAbout(page); state.draft.sex = a.id; refresh(); }
+      if (a.act === 'setUnits') { readAbout(page); state.draft.units = a.id; refresh(); }
+      if (a.act === 'aboutNext'){
+        readAbout(page);
+        const err = validateAbout();
+        const box = current.querySelector('#err');
+        if (err){ if (box) box.textContent = err; return; }
+        nav('Lifestyle', pageActivity);
+      }
+      if (a.act === 'wizAct')   { state.draft.activity = +a.v; state.draft.actLabel = a.label; nav('Experience', pageExp); }
+      if (a.act === 'wizExp')   { state.draft.exp = a.id; nav('Schedule', pageDays); }
+      if (a.act === 'wizDays')  { state.draft.days = +a.v; nav('Equipment', pageEquip); }
+      if (a.act === 'wizEquip') {
+        state.draft.equip = a.id;
+        state.profile = { ...state.draft };
+        state.goal = state.profile.goal;
+        state.plan = computePlan();
+        nav('Your Plan', pagePlanFull);
+      }
+      if (a.act === 'retake')   ROUTES.goals();
+    });
+  });
+}
+
+/* ================= PERSONALIZATION ENGINE ================= */
+const goalData  = () => GOALS.find(g => g.id === state.goal);
+const kcalGoal  = () => state.plan ? state.plan.kcal : (goalData()?.calories || 2000);
+/* every logged entry is {food, qty}; totals multiply by qty and round */
+const allLogged = () => Object.values(state.meals).flat();
+const eKcal = e => Math.round(e.food.calories * e.qty);
+const eP    = e => Math.round(e.food.p * e.qty);
+const eC    = e => Math.round(e.food.c * e.qty);
+const eF    = e => Math.round(e.food.f * e.qty);
+const totalKcal = () => allLogged().reduce((s,e)=>s+eKcal(e),0);
+const totalP    = () => allLogged().reduce((s,e)=>s+eP(e),0);
+const totalC    = () => allLogged().reduce((s,e)=>s+eC(e),0);
+const totalF    = () => allLogged().reduce((s,e)=>s+eF(e),0);
+const mealKcal  = m => state.meals[m].reduce((s,e)=>s+eKcal(e),0);
+
+function validateAbout(){
+  const d = state.draft;
+  if (!d.name || !d.name.trim())      return 'Enter your name.';
+  if (!d.sex)                          return 'Pick a body type — it sets the metabolic formula.';
+  const age = +d.age;
+  if (!(age >= 14 && age <= 90))       return 'Enter an age between 14 and 90.';
+  if (d.units === 'imp'){
+    const ft = +d.ft, inch = +(d.inch || 0), w = +d.w;
+    if (!(ft >= 3 && ft <= 8))         return 'Check your height (feet).';
+    if (!(w >= 66 && w <= 660))        return 'Check your weight (lb).';
+  } else {
+    const h = +d.h, w = +d.w;
+    if (!(h >= 120 && h <= 230))       return 'Check your height (cm).';
+    if (!(w >= 30 && w <= 300))        return 'Check your weight (kg).';
+  }
+  return '';
+}
+
+const GOAL_TUNING = {
+  lose:     { adj:-0.20, prot:2.0, why:'a ~20% deficit — steep enough for steady loss of roughly 0.5 kg a week, gentle enough to protect muscle, sleep and mood.' },
+  gain:     { adj: 0.12, prot:2.0, why:'a ~12% surplus — enough raw material to build muscle without piling on unnecessary fat.' },
+  endure:   { adj: 0.00, prot:1.5, why:'set right at maintenance — endurance performance is fueled best when intake matches output.' },
+  maintain: { adj: 0.00, prot:1.6, why:'matched to your output, so weight holds steady while training slowly improves body composition.' },
+};
+const EXP_NOTE = {
+  beginner:     'Beginner protocol: start each session at ~70% of the listed volume and add one set per week. Form first, load second.',
+  intermediate: 'Intermediate protocol: run sessions as written. When every set feels easier than 8/10 effort, add 2.5–5% load or one rep.',
+  advanced:     'Advanced protocol: sessions are your floor, not your ceiling — add a top set or a finisher, and track weekly volume.',
+};
+const EQUIP_NOTE = {
+  none:  'No equipment: swap barbell and machine moves for their bodyweight versions (push-up families, split squats, inverted rows).',
+  basic: 'Dumbbells only: every barbell lift here has a dumbbell equivalent — same sets, same effort scale.',
+  gym:   'Full gym access: run every session exactly as written.',
+};
+const REST_LABEL = {
+  lose:'Rest · hit 10k steps', gain:'Rest · protein focus day',
+  endure:'Active recovery · 20min easy walk or spin', maintain:'Rest day',
+};
+const DAYNAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const DAY_PATTERNS = { 3:[0,2,4], 4:[0,1,3,4], 5:[0,1,3,4,5], 6:[0,1,2,3,4,5] };
+
+/* Balanced weekly templates — each goal hits the whole body + cardio every week.
+   Values are subcategory keys within WORKOUTS_SPECIALIZED[goal]. */
+const SPLIT_TEMPLATES = {
+  gain: {
+    3:['upperbody','lowerbody','conditioning'],
+    4:['upperbody','lowerbody','upperbody','conditioning'],
+    5:['upperbody','lowerbody','compound','upperbody','conditioning'],
+    6:['upperbody','lowerbody','compound','upperbody','lowerbody','conditioning'],
+  },
+  lose: {
+    3:['fatburn','cardio','fatburn'],
+    4:['fatburn','cardio','fatburn','cardio'],
+    5:['fatburn','cardio','fatburn','cardio','fatburn'],
+    6:['fatburn','cardio','fatburn','cardio','fatburn','cardio'],
+  },
+  endure: {
+    3:['running','cycling','swimming'],
+    4:['running','cycling','swimming','other'],
+    5:['running','cycling','swimming','running','other'],
+    6:['running','cycling','swimming','running','cycling','other'],
+  },
+  maintain: {
+    3:['balanced','cardio','mobility'],
+    4:['balanced','cardio','balanced','recovery'],
+    5:['balanced','cardio','mobility','balanced','recovery'],
+    6:['balanced','cardio','mobility','balanced','cardio','recovery'],
+  },
+};
+
+/* Muscle-building has no cardio block of its own, so borrow conditioning sessions
+   from the fat-loss library to keep the heart trained on a "gain" plan. */
+const CONDITIONING_FALLBACK = { goal:'lose', cat:'cardio' };
+
+/* pick the Nth distinct workout from a subcategory, cycling if needed.
+   'conditioning' is a virtual category that pulls from the cardio library. */
+function pickFrom(goal, cat, n){
+  if (cat === 'conditioning'){
+    const arr = WORKOUTS_SPECIALIZED[CONDITIONING_FALLBACK.goal][CONDITIONING_FALLBACK.cat];
+    return { w: arr[n % arr.length], realGoal: CONDITIONING_FALLBACK.goal };
+  }
+  const arr = WORKOUTS_SPECIALIZED[goal][cat];
+  return { w: arr[n % arr.length], realGoal: goal };
+}
+
+function computePlan(){
+  const d = state.profile;
+  const kg = d.units === 'imp' ? +d.w * 0.4536 : +d.w;
+  const cm = d.units === 'imp' ? (+d.ft * 12 + (+d.inch || 0)) * 2.54 : +d.h;
+  const bmr  = 10*kg + 6.25*cm - 5*(+d.age) + (d.sex === 'm' ? 5 : -161);
+  const tdee = bmr * d.activity;
+  const tune = GOAL_TUNING[d.goal];
+  let kcal = Math.round(tdee * (1 + tune.adj) / 10) * 10;
+  const floored = kcal < 1300;
+  kcal = Math.max(kcal, 1300);
+  const protein = Math.round(kg * tune.prot);
+  const fat     = Math.round(kcal * 0.27 / 9);
+  const carbs   = Math.max(Math.round((kcal - protein*4 - fat*9) / 4), 0);
+
+  const pattern = DAY_PATTERNS[d.days] || DAY_PATTERNS[4];
+  const template = (SPLIT_TEMPLATES[d.goal] || SPLIT_TEMPLATES.maintain)[d.days]
+                || (SPLIT_TEMPLATES[d.goal] || SPLIT_TEMPLATES.maintain)[4];
+
+  /* track how many times we've used each subcategory so repeats are distinct */
+  const seen = {};
+  const trainingDays = pattern.map((dayIdx, slot) => {
+    const cat = template[slot % template.length];
+    seen[cat] = (seen[cat] || 0);
+    const picked = pickFrom(d.goal, cat, seen[cat]);
+    seen[cat]++;
+    return { dayIdx, g:picked.realGoal, cat, w:picked.w };
+  });
+
+  const schedule = DAYNAMES.map((day, i) => {
+    const t = trainingDays.find(x => x.dayIdx === i);
+    return t ? { day, g:t.g, cat:t.cat, w:t.w } : { day, rest:true };
+  });
+
+  /* summary of what the week covers, for the plan page */
+  const labelFor = c => c === 'conditioning' ? 'Cardio' : (CAT_LABEL[c] || c);
+  const coverage = [...new Set(trainingDays.map(t => labelFor(t.cat)))];
+
+  /* ---- premium metrics ---- */
+  /* body context */
+  const hM = cm / 100;
+  const bmi = kg / (hM*hM);
+  const bmiCat = bmi < 18.5 ? 'underweight' : bmi < 25 ? 'healthy range'
+               : bmi < 30 ? 'overweight' : 'obese range';
+
+  /* weekly training load */
+  const weeklyMinutes = trainingDays.reduce((s,t) => s + t.w.duration, 0);
+  const weeklyBurn    = trainingDays.reduce((s,t) => s + t.w.burn, 0);
+
+  /* energy balance & timeline projection */
+  const dailyDelta = kcal - tdee;                 /* +surplus / −deficit */
+  const weeklyDelta = dailyDelta * 7 + weeklyBurn * (d.goal==='lose'? -1 : 0)*0; /* diet-driven */
+  /* ~7700 kcal per kg of body mass */
+  const weeklyKg = (dailyDelta * 7) / 7700;
+  const absWeeklyKg = Math.abs(weeklyKg);
+  const weeklyChange = absWeeklyKg < 0.01 ? 0
+    : (d.units === 'imp' ? absWeeklyKg * 2.2046 : absWeeklyKg);
+  const changeUnit = d.units === 'imp' ? 'lb' : 'kg';
+
+  /* a 12-week horizon projection */
+  const horizonWeeks = 12;
+  const projKg = weeklyKg * horizonWeeks;
+  const projChange = Math.abs(d.units==='imp' ? projKg*2.2046 : projKg);
+  const projDir = kcal > tdee ? 'gain' : kcal < tdee ? 'lose' : 'maintain';
+
+  /* per-meal macro split (3 meals + 1 snack model) */
+  const meals = [
+    { name:'Breakfast', pct:.28 },
+    { name:'Lunch',     pct:.32 },
+    { name:'Dinner',    pct:.30 },
+    { name:'Snack',     pct:.10 },
+  ].map(m => ({
+    name:m.name,
+    kcal:Math.round(kcal*m.pct/10)*10,
+    p:Math.round(protein*m.pct),
+    c:Math.round(carbs*m.pct),
+    f:Math.round(fat*m.pct),
+  }));
+
+  /* hydration scales with training load */
+  const waterL = Math.round((kg*35/1000 + weeklyMinutes/7*0.012) * 10) / 10;
+
+  /* protein per meal target for absorption */
+  const proteinPerMeal = Math.round(protein / 4);
+
+  return {
+    kcal, floored, tdee:Math.round(tdee), bmr:Math.round(bmr),
+    protein, carbs, fat, proteinPerMeal,
+    proteinCal: protein*4, carbCal: carbs*4, fatCal: fat*9,
+    waterL,
+    steps:  d.goal === 'lose' ? '10,000' : '8,000',
+    schedule, coverage,
+    bmi: Math.round(bmi*10)/10, bmiCat,
+    weeklyMinutes, weeklyBurn,
+    dailyDelta: Math.round(dailyDelta),
+    weeklyChange: Math.round(weeklyChange*100)/100, changeUnit,
+    projChange: Math.round(projChange*10)/10, projDir, horizonWeeks,
+    meals,
+  };
+}
+
+const COACH = {
+  'Fat Burn':   { rpe:'8–9 / 10', rest:'30–45s between rounds', tip:'The magic is in short transitions — the clock matters more than the reps.' },
+  'Cardio':     { rpe:'7–8 on sprints', rest:'walk the recovery, never stand still', tip:'Sprints should feel repeatable; if rep 5 collapses, ease rep 1.' },
+  'Strength':   { rpe:'7–8 / 10', rest:'2–3min between sets', tip:'Leave 1–2 reps in reserve on every set. Strength grows in the rest, not the grind.' },
+  'Hypertrophy':{ rpe:'8 / 10', rest:'60–90s between sets', tip:'Control the lowering phase for 2–3 seconds — that\'s where muscle is made.' },
+  'Aerobic':    { rpe:'5–6 / 10 · zone 2', rest:'—', tip:'You should be able to hold a conversation. If you can\'t, slow down — that IS the workout.' },
+  'Cross-Train':{ rpe:'6–7 / 10', rest:'30s between laps', tip:'Focus on long exhales in the water — rhythm beats power.' },
+  'Speed':      { rpe:'8 / 10 on tempo', rest:'—', tip:'Tempo pace = "comfortably hard": you could speak in short phrases, not sentences.' },
+  'Balanced':   { rpe:'7 / 10', rest:'60–90s', tip:'Move with intent on every rep — this session keeps everything tuned.' },
+  'Recovery':   { rpe:'2–3 / 10', rest:'—', tip:'Breathe through the nose, lengthen the exhale. Today builds tomorrow.' },
+  'Mobility':   { rpe:'3–4 / 10', rest:'—', tip:'Slow ranges, no bouncing. The positions you own are the injuries you skip.' },
+  'Cardio2':    { rpe:'6 / 10', rest:'—', tip:'Steady and honest. Finish feeling like you could do ten more minutes.' },
+};
+
+/* ================= PAGES ================= */
+function pageMenu(){
+  const pf = state.profile;
+  const first = pf ? pf.name.trim().split(' ')[0] : null;
+  const opts = pf ? [
+    { t:"Your Plan",       d:`${goalData().icon} ${goalData().label} · ${state.plan.kcal} kcal/day · ${state.profile.days}x per week`, route:"plan" },
+    { t:"Calorie Tracker", d:`Log fuel against your ${state.plan.kcal} kcal target and macro split`, route:"calories" },
+    { t:"Workout Library", d:"Every session, organized by what it does for you", route:"workouts" },
+    { t:"Activity Log",    d:"Everything you've burned so far", route:"log" },
+  ] : [
+    { t:"Goal Analysis",   d:"Six quick questions — get calories, macros and a weekly schedule built for you", route:"goals" },
+    { t:"Calorie Tracker", d:"Log fuel against your daily target", route:"calories" },
+    { t:"Workout Library", d:"Every session, organized by what it does for you", route:"workouts" },
+    { t:"Activity Log",    d:"Everything you've burned so far", route:"log" },
+  ];
+  return `
+    <div style="min-height:62vh;display:flex;flex-direction:column;justify-content:center">
+      <div class="kicker rv">${pf ? 'Welcome back' : 'Fitness intelligence'}</div>
+      <h1 class="rv">${pf ? `Back in orbit,<br>${first}.` : 'Train inside<br>your own orbit.'}</h1>
+      <p class="lede rv">${pf
+        ? `Your ${goalData().label.toLowerCase()} plan is live: ${state.plan.kcal} kcal a day, ${state.profile.days} sessions a week. Pick a path below.`
+        : 'Pick a path below. Scroll to explore — the singularity turns with you. Start with Goal Analysis and the whole app reshapes itself around you.'}</p>
+      <div class="cue rv">Scroll ↓</div>
+    </div>
+    ${opts.map((o,i)=>`
+      <div class="opt ${i%2 ? 'rv-r':'rv-l'}" data-act="open" data-route="${o.route}">
+        <span class="num">0${i+1}</span>
+        <div><div class="t">${o.t}</div><div class="d">${o.d}</div></div>
+        <span class="arrow">→</span>
+      </div>`).join('')}
+    <p class="mut rv" style="text-align:center;font-size:12px;letter-spacing:.2em;margin:30px 0 10px">CHOOSE AN OPTION · THE PAGE SLIDES RIGHT</p>`;
+}
+
+/* --- wizard step 1: goal --- */
+function pageGoals(){
+  return `
+    <div class="kicker rv">Analysis · step 1 of 6</div>
+    <h1 class="rv">What are you<br>training for?</h1>
+    <p class="lede rv">Every answer from here on tunes your calories, macros and weekly schedule.</p>
+    <div style="height:26px"></div>
+    ${GOALS.map((g,i)=>`
+      <div class="opt ${i%2 ? 'rv-r':'rv-l'}" data-act="wizGoal" data-id="${g.id}">
+        <span style="font-size:26px">${g.icon}</span>
+        <div><div class="t">${g.label}</div><div class="d">${g.desc}</div></div>
+        <span class="arrow">→</span>
+      </div>`).join('')}`;
+}
+
+/* --- wizard step 2: about you --- */
+function pageAbout(){
+  const d = state.draft, imp = d.units === 'imp';
+  const chip = (on) => `chip${on ? ' on' : ''}`;
+  return `
+    <div class="kicker rv">Analysis · step 2 of 6</div>
+    <h1 class="rv">About you</h1>
+    <p class="lede rv">This feeds the Mifflin-St Jeor equation — the standard for estimating how much energy your body burns at rest.</p>
+    <div style="height:22px"></div>
+    <div class="card rv">
+      <label class="fl">Units</label>
+      <div class="chiprow">
+        <span class="${chip(!imp)}" data-act="setUnits" data-id="metric">Metric · kg / cm</span>
+        <span class="${chip(imp)}"  data-act="setUnits" data-id="imp">Imperial · lb / ft</span>
+      </div>
+      <div class="field"><label class="fl">Name</label>
+        <input class="inp" id="f-name" placeholder="e.g. Alex" value="${d.name || ''}"></div>
+      <label class="fl">Body type (for the formula)</label>
+      <div class="chiprow">
+        <span class="${chip(d.sex==='m')}" data-act="wizSex" data-id="m">Male</span>
+        <span class="${chip(d.sex==='f')}" data-act="wizSex" data-id="f">Female</span>
+      </div>
+      <div class="field"><label class="fl">Age</label>
+        <input class="inp" id="f-age" type="number" placeholder="e.g. 28" value="${d.age || ''}"></div>
+      ${imp ? `
+        <div class="grid2">
+          <div class="field"><label class="fl">Height — feet</label>
+            <input class="inp" id="f-ft" type="number" placeholder="5" value="${d.ft || ''}"></div>
+          <div class="field"><label class="fl">Height — inches</label>
+            <input class="inp" id="f-in" type="number" placeholder="10" value="${d.inch || ''}"></div>
+        </div>
+        <div class="field"><label class="fl">Weight (lb)</label>
+          <input class="inp" id="f-w" type="number" placeholder="170" value="${d.w || ''}"></div>
+      ` : `
+        <div class="grid2">
+          <div class="field"><label class="fl">Height (cm)</label>
+            <input class="inp" id="f-h" type="number" placeholder="178" value="${d.h || ''}"></div>
+          <div class="field"><label class="fl">Weight (kg)</label>
+            <input class="inp" id="f-w" type="number" placeholder="77" value="${d.w || ''}"></div>
+        </div>
+      `}
+      <div class="err" id="err"></div>
+      <button class="btn" data-act="aboutNext">Continue →</button>
+    </div>`;
+}
+
+/* --- wizard step 3: activity --- */
+function pageActivity(){
+  const acts = [
+    { v:1.2,   l:"Mostly seated",     d:"Desk work, little movement outside training" },
+    { v:1.375, l:"Lightly active",    d:"On your feet some of the day, short walks" },
+    { v:1.55,  l:"Moderately active", d:"Regular movement most days, active job or lifestyle" },
+    { v:1.725, l:"Very active",       d:"Physical job or training hard nearly every day" },
+  ];
+  return `
+    <div class="kicker rv">Analysis · step 3 of 6</div>
+    <h1 class="rv">Your normal day,<br>outside the gym?</h1>
+    <p class="lede rv">Daily movement often burns more than workouts do — this multiplies your resting burn into a true daily figure.</p>
+    <div style="height:26px"></div>
+    ${acts.map((a,i)=>`
+      <div class="opt ${i%2 ? 'rv-r':'rv-l'}" data-act="wizAct" data-v="${a.v}" data-label="${a.l}">
+        <span class="num">×${a.v}</span>
+        <div><div class="t">${a.l}</div><div class="d">${a.d}</div></div>
+        <span class="arrow">→</span>
+      </div>`).join('')}`;
+}
+
+/* --- wizard step 4: experience --- */
+function pageExp(){
+  const exps = [
+    { id:"beginner",     l:"New to this",  d:"Under a year of consistent training" },
+    { id:"intermediate", l:"Been at it",   d:"1–3 years, comfortable with the main movements" },
+    { id:"advanced",     l:"Seasoned",     d:"3+ years, training is part of who you are" },
+  ];
+  return `
+    <div class="kicker rv">Analysis · step 4 of 6</div>
+    <h1 class="rv">How long have<br>you trained?</h1>
+    <p class="lede rv">This sets how aggressively your sessions progress — and how much volume you start with.</p>
+    <div style="height:26px"></div>
+    ${exps.map((e,i)=>`
+      <div class="opt ${i%2 ? 'rv-r':'rv-l'}" data-act="wizExp" data-id="${e.id}">
+        <span class="num">0${i+1}</span>
+        <div><div class="t">${e.l}</div><div class="d">${e.d}</div></div>
+        <span class="arrow">→</span>
+      </div>`).join('')}`;
+}
+
+/* --- wizard step 5: days per week --- */
+function pageDays(){
+  return `
+    <div class="kicker rv">Analysis · step 5 of 6</div>
+    <h1 class="rv">How many days<br>can you give it?</h1>
+    <p class="lede rv">Honest answers beat ambitious ones — a 3-day plan you keep beats a 6-day plan you quit.</p>
+    <div style="height:26px"></div>
+    ${[3,4,5,6].map((n,i)=>`
+      <div class="opt ${i%2 ? 'rv-r':'rv-l'}" data-act="wizDays" data-v="${n}">
+        <span class="num">${n}×</span>
+        <div><div class="t">${n} days a week</div><div class="d">${n<=3 ? 'Full-body focus, maximum recovery' : n<=5 ? 'Split sessions with built-in rest' : 'High frequency — recovery becomes the skill'}</div></div>
+        <span class="arrow">→</span>
+      </div>`).join('')}`;
+}
+
+/* --- wizard step 6: equipment --- */
+function pageEquip(){
+  const eq = [
+    { id:"none",  l:"Just my body",  d:"No equipment — home, park, hotel rooms" },
+    { id:"basic", l:"Some dumbbells",d:"A few weights and a bit of floor space" },
+    { id:"gym",   l:"Full gym",      d:"Barbells, machines, cardio kit — the lot" },
+  ];
+  return `
+    <div class="kicker rv">Analysis · step 6 of 6</div>
+    <h1 class="rv">What's in<br>your arsenal?</h1>
+    <p class="lede rv">Last one. Your plan adapts its movements to whatever you've actually got.</p>
+    <div style="height:26px"></div>
+    ${eq.map((e,i)=>`
+      <div class="opt ${i%2 ? 'rv-r':'rv-l'}" data-act="wizEquip" data-id="${e.id}">
+        <span class="num">0${i+1}</span>
+        <div><div class="t">${e.l}</div><div class="d">${e.d}</div></div>
+        <span class="arrow">→</span>
+      </div>`).join('')}`;
+}
+
+/* --- the personalized plan --- */
+function pagePlanFull(){
+  const pf = state.profile, p = state.plan, g = goalData(), tune = GOAL_TUNING[pf.goal];
+  const adjPct = Math.round(Math.abs(tune.adj)*100);
+  const adjTxt = tune.adj < 0 ? `−${adjPct}% deficit` : tune.adj > 0 ? `+${adjPct}% surplus` : 'at maintenance';
+  const first = pf.name.trim().split(' ')[0];
+
+  /* macro split bar widths by calorie share */
+  const totCal = p.proteinCal + p.carbCal + p.fatCal || 1;
+  const pW = p.proteinCal/totCal*100, cW = p.carbCal/totCal*100, fW = p.fatCal/totCal*100;
+  const C_P = '#f06511', C_C = '#ffb060', C_F = '#7a8bd6';
+
+  /* projection wording */
+  const projVerb = p.projDir === 'gain' ? 'gain' : p.projDir === 'lose' ? 'shed' : 'hold steady at';
+  const projLine = p.projChange < 0.3
+    ? `On this plan you'll <b class="em">hold your current weight</b> — exactly right for ${g.label.toLowerCase()}.`
+    : `Hold this line for <b class="em">${p.horizonWeeks} weeks</b> and you're on track to ${projVerb} about <b class="em">${p.projChange} ${p.changeUnit}</b>.`;
+
+  return `
+    <div class="kicker rv">Analysis complete · engineered for ${first}</div>
+    <h1 class="rv">${g.icon} Your ${g.label}<br>Blueprint</h1>
+    <p class="lede rv">A complete system — fuel, macros, timeline and a balanced training week, all computed from your body and lifestyle.</p>
+
+    <!-- ===== HEADLINE PROJECTION ===== -->
+    <div class="sec rv">The 12-week outlook</div>
+    <div class="proj rv">
+      <div class="row" style="align-items:flex-end">
+        <div>
+          <div class="mut" style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin-bottom:8px">Projected result</div>
+          <span class="big2">${p.projChange < 0.3 ? 'Maintain' : (p.projDir==='gain'?'+':'−') + p.projChange + ' ' + p.changeUnit}</span>
+        </div>
+        <div style="text-align:right">
+          <div class="mut" style="font-size:11px">per week</div>
+          <div style="font-family:'Unbounded';font-weight:700;font-size:18px;color:var(--ink)">${p.weeklyChange < 0.02 ? '±0' : (p.projDir==='gain'?'+':'−') + p.weeklyChange} ${p.changeUnit}</div>
+        </div>
+      </div>
+      <p class="mut" style="font-size:13.5px;line-height:1.6;margin:14px 0 0">${projLine} That's a realistic, sustainable pace — fast enough to see, slow enough to keep.</p>
+    </div>
+
+    <!-- ===== DAILY FUEL ===== -->
+    <div class="sec rv">Daily fuel target</div>
+    <div class="card rv" style="border-color:var(--ember-mid)">
+      <span class="big" style="font-size:32px;color:var(--ember)">${p.kcal}<span class="mut" style="font-size:15px;font-family:'Space Grotesk'"> kcal / day · ${adjTxt}</span></span>
+      <div class="msplit">
+        <i style="width:${pW}%;background:${C_P}"></i>
+        <i style="width:${cW}%;background:${C_C}"></i>
+        <i style="width:${fW}%;background:${C_F}"></i>
+      </div>
+      <div class="mkey">
+        <span><span class="dot" style="background:${C_P}"></span>Protein <b>${p.protein}g</b> · ${Math.round(pW)}%</span>
+        <span><span class="dot" style="background:${C_C}"></span>Carbs <b>${p.carbs}g</b> · ${Math.round(cW)}%</span>
+        <span><span class="dot" style="background:${C_F}"></span>Fat <b>${p.fat}g</b> · ${Math.round(fW)}%</span>
+      </div>
+      ${p.floored ? '<p class="mut" style="font-size:12px;margin:12px 0 0">Raised to a 1,300 kcal floor — going lower works against you.</p>' : ''}
+    </div>
+
+    <!-- ===== BODY METRICS GRID ===== -->
+    <div class="pgrid rv">
+      <div class="pcell">
+        <div class="lab">Resting burn</div>
+        <div class="val">${p.bmr} <small>kcal</small></div>
+        <div class="sub">Energy your body uses at complete rest (BMR)</div>
+      </div>
+      <div class="pcell">
+        <div class="lab">Total daily burn</div>
+        <div class="val">${p.tdee} <small>kcal</small></div>
+        <div class="sub">Scaled by your ${pf.actLabel.toLowerCase()} lifestyle</div>
+      </div>
+      <div class="pcell">
+        <div class="lab">Body Mass Index</div>
+        <div class="val">${p.bmi}</div>
+        <div class="sub">${p.bmiCat}</div>
+      </div>
+      <div class="pcell">
+        <div class="lab">Energy balance</div>
+        <div class="val">${p.dailyDelta >= 0 ? '+' : '−'}${Math.abs(p.dailyDelta)} <small>kcal</small></div>
+        <div class="sub">${p.dailyDelta >= 0 ? 'daily surplus to build' : 'daily deficit to cut'}</div>
+      </div>
+    </div>
+
+    <div class="card rv-l">
+      <div class="fl" style="margin-bottom:8px">Why this number</div>
+      <p class="mut" style="font-size:14px;line-height:1.7;margin:0">
+        Your body burns about <b class="em">${p.bmr} kcal</b> at complete rest (Mifflin-St Jeor).
+        Scaled by your "${pf.actLabel.toLowerCase()}" lifestyle, your true daily burn is around
+        <b class="em">${p.tdee} kcal</b>. For ${g.label.toLowerCase()}, we set intake ${tune.why}
+        Protein is anchored at <b class="em">${tune.prot.toFixed(1)} g per kg</b> — about <b class="em">${p.proteinPerMeal}g per meal</b> for steady muscle protein synthesis.
+      </p>
+    </div>
+
+    <!-- ===== MEAL BREAKDOWN ===== -->
+    <div class="sec rv">How to split your day</div>
+    <p class="mut rv" style="font-size:13px;line-height:1.6;margin:-2px 0 12px">A simple 4-part structure that lands your targets without counting every bite.</p>
+    ${p.meals.map((m,i)=>`
+      <div class="mealrow ${i%2?'rv-r':'rv-l'}">
+        <div class="mname">${m.name}</div>
+        <div style="flex:1">
+          <div class="mmac">P ${m.p}g · C ${m.c}g · F ${m.f}g</div>
+        </div>
+        <div class="mcal">${m.kcal} kcal</div>
+      </div>`).join('')}
+
+    <!-- ===== TRAINING WEEK ===== -->
+    <div class="sec rv">Your training week</div>
+    <div class="pgrid rv" style="margin-bottom:12px">
+      <div class="pcell">
+        <div class="lab">Sessions</div>
+        <div class="val">${pf.days}<small> / week</small></div>
+      </div>
+      <div class="pcell">
+        <div class="lab">Weekly volume</div>
+        <div class="val">${p.weeklyMinutes}<small> min</small></div>
+      </div>
+      <div class="pcell">
+        <div class="lab">Est. training burn</div>
+        <div class="val">${p.weeklyBurn}<small> kcal</small></div>
+      </div>
+      <div class="pcell">
+        <div class="lab">Focus areas</div>
+        <div class="val" style="font-size:14px;line-height:1.3">${p.coverage.length}</div>
+        <div class="sub">${p.coverage.join(' · ')}</div>
+      </div>
+    </div>
+    <div class="card rv" style="border-color:var(--ember-mid);padding:13px 16px;margin-bottom:10px">
+      <div class="fl" style="margin-bottom:5px">Balanced for the whole body</div>
+      <p class="mut" style="font-size:13px;line-height:1.55;margin:0">Every plan covers full-body movement plus cardio — legs included — so nothing gets neglected.</p>
+    </div>
+    ${p.schedule.map((s,i)=> s.rest ? `
+      <div class="card restday ${i%2 ? 'rv-r':'rv-l'}" style="padding:12px 16px">
+        <div class="row"><span class="daybadge">${s.day}</span>
+        <span class="mut" style="flex:1;font-size:14px">${REST_LABEL[pf.goal]}</span></div>
+      </div>` : `
+      <div class="card click ${i%2 ? 'rv-r':'rv-l'}" data-act="open" data-route="detail" data-g="${s.g}" data-wname="${encodeURIComponent(s.w.name)}" style="padding:13px 16px">
+        <div class="row">
+          <span class="daybadge">${s.day}</span>
+          <div style="flex:1">
+            <div class="mut" style="font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ember);margin-bottom:2px">${CAT_LABEL[s.cat] || s.cat}</div>
+            <div style="font-weight:700;font-size:15px">${s.w.name}</div>
+            <div class="mut" style="font-size:12px;margin-top:2px"><span class="pill em">${s.w.tag}</span> &nbsp;${s.w.duration} min · ~${s.w.burn} kcal</div>
+          </div>
+          <span style="color:var(--ember);font-size:18px">→</span>
+        </div>
+      </div>`).join('')}
+
+    <!-- ===== HABITS ===== -->
+    <div class="sec rv">Daily habits that carry the plan</div>
+    <div class="card rv" style="display:flex;justify-content:space-around;text-align:center;padding:18px 8px">
+      <div class="stat"><b>${p.waterL}L</b><span>Water</span></div>
+      <div class="stat"><b>${p.steps}</b><span>Steps</span></div>
+      <div class="stat"><b>7–9h</b><span>Sleep</span></div>
+      <div class="stat"><b>${p.proteinPerMeal}g</b><span>Protein / meal</span></div>
+    </div>
+
+    <div class="card rv-l">
+      <div class="fl" style="margin-bottom:8px">Coach's protocol</div>
+      <p class="mut" style="font-size:14px;line-height:1.7;margin:0 0 10px">${EXP_NOTE[pf.exp]}</p>
+      <p class="mut" style="font-size:14px;line-height:1.7;margin:0">${EQUIP_NOTE[pf.equip]}</p>
+    </div>
+
+    <div class="grid2 rv" style="margin-top:18px">
+      <button class="btn" data-act="open" data-route="calories">Open Calorie Tracker</button>
+      <button class="btn" style="background:transparent;color:var(--accent);border:1px solid var(--accent)" data-act="retake">↻ Retake Analysis</button>
+    </div>
+    <p class="mut rv" style="font-size:11.5px;line-height:1.6;margin-top:18px">Estimates for healthy adults, not medical advice. Projections assume consistent adherence and will vary with individual metabolism — adjust with how you feel and consult a professional for specific conditions.</p>`;
+}
+
+const CAT_LABEL = {
+  fatburn:"Fat Burn", cardio:"Cardio",
+  upperbody:"Upper Body", lowerbody:"Lower Body", compound:"Compound",
+  running:"Running", cycling:"Cycling", swimming:"Swimming", other:"Other Cardio",
+  balanced:"Balanced", recovery:"Recovery", mobility:"Mobility", conditioning:"Cardio",
+};
+
+function pageWorkouts(){
+  const mineId = state.goal;
+  const order = mineId
+    ? [GOALS.find(x => x.id === mineId), ...GOALS.filter(x => x.id !== mineId)]
+    : GOALS;
+
+  const blocks = order.map(goal => {
+    const spec = WORKOUTS_SPECIALIZED[goal.id];
+    const mine = goal.id === mineId;
+    const goalHeader = `
+      <div class="rv" style="margin:42px 0 4px;font-family:'Unbounded',sans-serif;font-weight:700;font-size:1.15rem;${mine ? 'color:var(--ember)' : ''}">
+        ${goal.icon} ${goal.label}${mine ? ' · your goal' : ''}
+      </div>`;
+    const cats = Object.keys(spec).map(cat => `
+      <div class="sec ${mine ? 'em' : ''} rv">${CAT_LABEL[cat] || cat} · ${spec[cat].length} sessions · ${(EXERCISE_DB[cat] || []).length} movements</div>
+      ${spec[cat].map((w,i)=>`
+        <div class="card click ${i%2 ? 'rv-r':'rv-l'}" data-act="open" data-route="detail" data-g="${goal.id}" data-wname="${encodeURIComponent(w.name)}">
+          <div class="row">
+            <div>
+              <span class="pill ${mine ? 'em' : ''}">${w.tag}</span>
+              <div class="big" style="font-size:16px;margin-top:7px">${w.name}</div>
+              <div class="mut" style="font-size:12.5px;margin-top:3px">${w.duration} min · ~${w.burn} kcal · intensity ${COACH[w.tag] ? COACH[w.tag].rpe : '7 / 10'}</div>
+            </div>
+            <span style="color:var(--ember);font-size:20px">→</span>
+          </div>
+        </div>`).join('')}`).join('');
+    return goalHeader + cats;
+  }).join('');
+
+  const total = GOALS.reduce((s,goal) => s + Object.values(WORKOUTS_SPECIALIZED[goal.id]).flat().length, 0);
+  return `
+    <div class="kicker rv">The library · ${total} workouts</div>
+    <h1 class="rv">Every workout,<br>one orbit away.</h1>
+    <p class="lede rv">${mineId
+      ? `Your ${GOALS.find(x=>x.id===mineId).label.toLowerCase()} sections come first, marked in ember.`
+      : 'All goals, all focus areas. Run the Goal Analysis to pin yours to the top.'}</p>
+    ${blocks}`;
+}
+
+function pageDetail({g, wname}){
+  const name = decodeURIComponent(wname);
+  const spec = WORKOUTS_SPECIALIZED[g];
+  let w = null;
+  for (const cat of Object.values(spec)) {
+    w = cat.find(x => x.name === name);
+    if (w) break;
+  }
+  if (!w) return '<p>Workout not found.</p>';
+  const c = COACH[w.tag] || { rpe:'7 / 10', rest:'60–90s', tip:'Move with intent on every rep.' };
+  const pf = state.profile;
+  /* find this workout's specialized group, then load its full arsenal */
+  let wcat = null;
+  for (const [k, arr] of Object.entries(WORKOUTS_SPECIALIZED[g])) {
+    if (arr.some(x => x.name === w.name)) { wcat = k; break; }
+  }
+  const db = EXERCISE_DB[wcat] || [];
+  const catLabel = CAT_LABEL[wcat] || wcat || '';
+  const groups = {};
+  db.forEach(x => { const key = x.m || 'All movements'; (groups[key] = groups[key] || []).push(x); });
+  return `
+    <span class="pill em rv">${w.tag}</span>
+    <h1 class="rv" style="margin-top:10px">${w.name}</h1>
+    <p class="lede rv">${w.duration} minutes · burns about <b class="em">${w.burn} kcal</b></p>
+
+    <div class="card rv" style="display:flex;justify-content:space-around;text-align:center;padding:16px 8px;border-color:var(--ember-mid)">
+      <div class="stat"><b style="font-size:1.15rem">${c.rpe}</b><span>Effort</span></div>
+      <div class="stat"><b style="font-size:1.15rem">${c.rest}</b><span>Rest</span></div>
+      <div class="stat"><b style="font-size:1.15rem">${w.duration}m</b><span>Duration</span></div>
+    </div>
+
+    <div class="sec rv">Exercises</div>
+    ${w.sets.map((set,j)=>`
+      <div class="card rv-l" style="display:flex;align-items:center;gap:14px;padding:13px 16px">
+        <div class="exnum">${j+1}</div><div style="font-size:14.5px">${set}</div>
+      </div>`).join('')}
+
+    <div class="card rv-r" style="margin-top:16px">
+      <div class="fl" style="margin-bottom:8px">Coach's brief</div>
+      <p class="mut" style="font-size:14px;line-height:1.7;margin:0 0 ${pf?'10px':'0'}">${c.tip}</p>
+      ${pf ? `<p class="mut" style="font-size:13px;line-height:1.7;margin:0">${EXP_NOTE[pf.exp]}</p>` : ''}
+    </div>
+
+    <div class="sec rv" style="margin-top:36px">The full ${catLabel} arsenal · ${db.length} movements</div>
+    <p class="mut rv" style="font-size:13px;line-height:1.6;margin:-2px 0 6px">Every ${catLabel.toLowerCase()} movement in the catalog — swap any of these into today's session.</p>
+    ${Object.entries(groups).map(([mg, list]) => `
+      ${mg !== 'All movements' ? `<div class="fl rv" style="margin:20px 0 8px;color:var(--ember)">${mg} · ${list.length}</div>` : '<div style="height:10px"></div>'}
+      ${list.map((x,j)=>`
+        <div class="card ${j%2 ? 'rv-r':'rv-l'}" style="padding:10px 14px;margin-bottom:8px">
+          <div class="row">
+            <div><div style="font-weight:600;font-size:14px">${x.n}</div>
+            <div class="mut" style="font-size:11.5px;margin-top:2px">${x.e}</div></div>
+            <span class="em" style="font-weight:700;font-size:13px;white-space:nowrap">${x.s}</span>
+          </div>
+        </div>`).join('')}`).join('')}
+
+    <div class="rv" style="margin-top:18px">
+      <button class="btn" data-act="complete" data-g="${g}" data-wname="${wname}">✓ Mark Complete</button>
+    </div>`;
+}
+
+function pageCalories(){
+  return `
+    <div class="kicker rv">Fuel</div>
+    <h1 class="rv">Calorie Tracker</h1>
+    <p class="lede rv">${state.plan
+      ? `Your personalized target: <b class="em">${kcalGoal()} kcal</b> with ${state.plan.protein}g protein — straight from your analysis.`
+      : `Run the Goal Analysis for a target computed from your body and lifestyle.`}</p>
+    <div id="foodzone">${foodZone()}</div>`;
+}
+
+/* find a food by name across the database + custom foods */
+function findFood(name){
+  return ALL_FOODS.find(x => x.name === name)
+      || state.customFoods.find(x => x.name === name) || null;
+}
+function pushRecent(f){
+  state.recents = [f, ...state.recents.filter(x => x.name !== f.name)].slice(0, 20);
+}
+function isFav(f){ return f && state.favorites.some(x => x.name === f.name); }
+function toggleFav(f){
+  if (!f) return;
+  state.favorites = isFav(f)
+    ? state.favorites.filter(x => x.name !== f.name)
+    : [f, ...state.favorites];
+}
+function saveCustomFromForm(){
+  const g = id => (current.querySelector('#'+id)||{}).value || '';
+  const name = g('cfName').trim();
+  const cal = +g('cfCal');
+  if (!name || !cal){ const e = current.querySelector('#cfErr'); if(e) e.textContent = 'Name and calories are required.'; return; }
+  const food = { name, srv: g('cfSrv').trim() || '1 serving', calories: Math.round(cal),
+    p:+g('cfP')||0, c:+g('cfC')||0, f:+g('cfF')||0, cat:'Custom', custom:true };
+  state.customFoods = [food, ...state.customFoods.filter(x=>x.name!==name)];
+  state.foodView = 'browse'; state.foodQuery = '';
+  state.sheet = { food, qty:1 };   /* jump straight to logging it */
+  refreshFoodOnly();
+}
+
+const MEAL_ICON = { Breakfast:'☀', Lunch:'◑', Dinner:'☾', Snack:'✦' };
+
+/* the dynamic part — re-rendered on every keystroke / add / remove / sheet change */
+function foodZone(){
+  const total = totalKcal(), goal = kcalGoal(), left = goal - total, pct = Math.min(total/goal*100,100);
+  const tP = state.plan ? state.plan.protein : 150;
+  const tC = state.plan ? state.plan.carbs   : 250;
+  const tF = state.plan ? state.plan.fat     : 70;
+  const macroRow = (label, val, target, col) => `
+    <div class="row" style="margin-top:10px"><span class="mut" style="font-size:12px">${label}</span>
+    <span style="font-size:12px;font-weight:700">${val} / ${target}g</span></div>
+    <div class="bar" style="height:6px;margin:5px 0 0"><div style="width:${Math.min(val/target*100,100)}%;${col?`background:${col}`:''}"></div></div>`;
+
+  /* ---- summary ring ---- */
+  const summary = `
+    <div class="card" style="margin-top:22px">
+      <div class="row">
+        <span class="big" style="font-size:26px;color:var(--ember)">${total}<span class="mut" style="font-size:14px;font-family:'Space Grotesk'"> / ${goal} kcal</span></span>
+        <span style="font-weight:700;font-size:13px;color:${left<0?'var(--danger)':'var(--accent)'}">${left<0 ? `+${-left} over` : `${left} left`}</span>
+      </div>
+      <div class="bar"><div style="width:${pct}%"></div></div>
+      ${macroRow('PROTEIN', totalP(), tP, '#f06511')}
+      ${macroRow('CARBS',   totalC(), tC, '#ffb060')}
+      ${macroRow('FAT',     totalF(), tF, '#7a8bd6')}
+    </div>`;
+
+  /* ---- meal sections (the diary) ---- */
+  const diary = `
+    <div class="sec">Today's diary</div>
+    ${Object.keys(state.meals).map(meal => {
+      const items = state.meals[meal];
+      const mk = mealKcal(meal);
+      return `
+      <div style="margin-bottom:14px">
+        <div class="row" style="margin-bottom:7px">
+          <span style="font-weight:700;font-size:14px">${MEAL_ICON[meal]} ${meal}</span>
+          <span class="mut" style="font-size:12px">${mk} kcal</span>
+        </div>
+        ${items.length ? items.map((e,i)=>`
+          <div class="card" style="padding:10px 14px;margin-bottom:6px">
+            <div class="row">
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13.5px;font-weight:600">${e.food.name}</div>
+                <div class="mut" style="font-size:11px;margin-top:1px">${fmtQty(e.qty)} × ${e.food.srv} · P ${eP(e)} · C ${eC(e)} · F ${eF(e)}</div>
+              </div>
+              <span style="display:flex;align-items:center;gap:11px">
+                <b style="font-size:13px">${eKcal(e)}</b>
+                <span class="x" data-act="rmFood" data-meal="${meal}" data-i="${i}">×</span>
+              </span>
+            </div>
+          </div>`).join('') : `<div class="mut" style="font-size:12.5px;padding:6px 2px 2px">Nothing logged yet.</div>`}
+      </div>`;
+    }).join('')}`;
+
+  /* ---- add-food browser ---- */
+  const q = state.foodQuery.trim().toLowerCase();
+  const cats = ['All', ...Object.keys(FOOD_DB), ...(state.customFoods.length?['Custom']:[])];
+  const pool = [...ALL_FOODS, ...state.customFoods];
+  let results;
+  if (state.foodView === 'recents')   results = state.recents;
+  else if (state.foodView === 'favorites') results = state.favorites;
+  else if (q)                         results = pool.filter(f => f.name.toLowerCase().includes(q));
+  else if (state.foodCat === 'Custom')results = state.customFoods;
+  else if (state.foodCat === 'All')   results = pool;
+  else                                results = FOOD_DB[state.foodCat].map(f => ({...f, cat:state.foodCat}));
+  const shown = (results||[]).slice(0, 60);
+
+  const foodRow = f => `
+    <div class="fitem">
+      <span class="add" data-act="openFood" data-fname="${encodeURIComponent(f.name)}">+</span>
+      <div style="flex:1;min-width:0" data-act="openFood" data-fname="${encodeURIComponent(f.name)}">
+        <div style="font-weight:600;font-size:14px">${f.name}</div>
+        <div class="mut" style="font-size:11.5px;margin-top:2px">${f.srv} · ${f.calories} kcal · P ${f.p} · C ${f.c} · F ${f.f}${(q||state.foodView!=='browse')&&f.cat?` · ${f.cat}`:''}</div>
+      </div>
+      <span class="fav ${isFav(f)?'on':''}" data-act="toggleFav" data-fname="${encodeURIComponent(f.name)}">${isFav(f)?'★':'☆'}</span>
+    </div>`;
+
+  const browser = `
+    <div class="sec">Add to <span class="em">${state.activeMeal}</span></div>
+    <div class="mealtabs">
+      ${Object.keys(state.meals).map(m=>`
+        <span class="mealtab ${state.activeMeal===m?'on':''}" data-act="setMeal" data-meal="${m}">
+          ${MEAL_ICON[m]} ${m}<span class="mt-k">${mealKcal(m)}</span>
+        </span>`).join('')}
+    </div>
+
+    <div class="seg">
+      <button class="${state.foodView==='browse'?'on':''}" data-act="setFoodView" data-view="browse">Search</button>
+      <button class="${state.foodView==='recents'?'on':''}" data-act="setFoodView" data-view="recents">Recent</button>
+      <button class="${state.foodView==='favorites'?'on':''}" data-act="setFoodView" data-view="favorites">Favorites ★</button>
+    </div>
+
+    ${state.foodView==='browse' ? `
+      <div class="search">
+        <span class="mag">⌕</span>
+        <input id="foodSearch" placeholder="Search ${pool.length} foods…" value="${state.foodQuery.replace(/"/g,'&quot;')}" autocomplete="off">
+      </div>
+      ${q ? '' : `<div class="tabs">${cats.map(c=>`
+        <span class="tab ${state.foodCat===c?'on':''}" data-act="setFoodCat" data-cat="${encodeURIComponent(c)}">${c}</span>`).join('')}</div>`}
+    ` : ''}
+
+    ${shown.length ? shown.map(foodRow).join('')
+      : `<div class="empty">${
+          state.foodView==='recents' ? 'No recent foods yet — log something and it lands here.'
+        : state.foodView==='favorites' ? 'No favorites yet. Tap the ☆ on any food to save it.'
+        : `No food matches "${state.foodQuery}".`}</div>`}
+    ${results && results.length > 60 ? `<div class="empty">Showing first 60 of ${results.length} — keep typing to narrow it down.</div>` : ''}
+
+    <div style="margin-top:14px">
+      <button class="btn" style="background:transparent;color:var(--accent);border:1px dashed var(--accent)" data-act="setFoodView" data-view="custom">+ Create custom food</button>
+    </div>`;
+
+  /* ---- custom food form ---- */
+  const customForm = `
+    <div class="sec">Create a custom food</div>
+    <div class="card" style="padding:18px">
+      <input class="inp" id="cfName" placeholder="Food name (e.g. Mom's lasagna)" style="width:100%;box-sizing:border-box;margin-bottom:10px">
+      <input class="inp" id="cfSrv" placeholder="Serving (e.g. 1 slice, 100g)" style="width:100%;box-sizing:border-box;margin-bottom:10px">
+      <div class="grid2" style="gap:10px">
+        <input class="inp" id="cfCal" type="number" placeholder="Calories" style="box-sizing:border-box">
+        <input class="inp" id="cfP" type="number" placeholder="Protein (g)" style="box-sizing:border-box">
+        <input class="inp" id="cfC" type="number" placeholder="Carbs (g)" style="box-sizing:border-box">
+        <input class="inp" id="cfF" type="number" placeholder="Fat (g)" style="box-sizing:border-box">
+      </div>
+      <div id="cfErr" class="mut" style="color:var(--danger);font-size:12px;margin-top:8px;min-height:14px"></div>
+      <div class="grid2" style="gap:10px;margin-top:10px">
+        <button class="btn" data-act="saveCustom">Save & log</button>
+        <button class="btn" style="background:transparent;color:var(--accent);border:1px solid var(--accent)" data-act="setFoodView" data-view="browse">Cancel</button>
+      </div>
+    </div>`;
+
+  /* ---- the slide-up food detail sheet ---- */
+  const sheet = state.sheet ? (() => {
+    const f = state.sheet.food, qty = state.sheet.qty;
+    const presets = [0.5, 1, 1.5, 2, 3];
+    return `
+    <div class="sheet-bd" data-act="closeSheet">
+      <div class="sheet" onclick="event.stopPropagation()">
+        <div class="sheet-grab"></div>
+        <div class="row">
+          <div style="min-width:0">
+            <div style="font-family:'Unbounded';font-weight:700;font-size:19px;line-height:1.2">${f.name}</div>
+            <div class="mut" style="font-size:12.5px;margin-top:3px">${f.srv} · ${f.cat||''}</div>
+          </div>
+          <span class="fav ${isFav(f)?'on':''}" style="font-size:22px" data-act="toggleFav" data-fname="${encodeURIComponent(f.name)}">${isFav(f)?'★':'☆'}</span>
+        </div>
+
+        <div class="qstep">
+          <button data-act="qtyStep" data-d="-0.5">−</button>
+          <div class="qval">${fmtQty(qty)}<small>servings</small></div>
+          <button data-act="qtyStep" data-d="0.5">+</button>
+        </div>
+        <div class="qpre">
+          ${presets.map(pv=>`<span class="${qty===pv?'on':''}" data-act="qtyPreset" data-q="${pv}">${fmtQty(pv)}×</span>`).join('')}
+        </div>
+
+        <div class="macmini">
+          <div><b class="em">${Math.round(f.calories*qty)}</b><span>kcal</span></div>
+          <div><b>${Math.round(f.p*qty)}g</b><span>Protein</span></div>
+          <div><b>${Math.round(f.c*qty)}g</b><span>Carbs</span></div>
+          <div><b>${Math.round(f.f*qty)}g</b><span>Fat</span></div>
+        </div>
+
+        <button class="btn" data-act="confirmAdd">Add to ${state.activeMeal} · ${Math.round(f.calories*qty)} kcal</button>
+      </div>
+    </div>`;
+  })() : '';
+
+  const body = state.foodView === 'custom' ? customForm : browser;
+  return summary + diary + body + sheet;
+}
+
+function fmtQty(q){
+  if (q === Math.round(q)) return String(q);
+  return q.toFixed(2).replace(/0$/,'').replace(/\.$/,'');
+}
+
+/* re-render only the food zone so the search box keeps focus & scroll holds */
+function refreshFoodOnly(){
+  const zone = current.querySelector('#foodzone');
+  if (!zone){ refresh(); return; }
+  const input = current.querySelector('#foodSearch');
+  const hadFocus = document.activeElement === input;
+  const caret = input ? input.selectionStart : null;
+  zone.innerHTML = foodZone();
+  bindActions(current);
+  bindFoodSearch(current);
+  if (hadFocus){
+    const ni = current.querySelector('#foodSearch');
+    if (ni){ ni.focus(); if (caret!=null) ni.setSelectionRange(caret, caret); }
+  }
+}
+
+function bindFoodSearch(page){
+  const input = page.querySelector('#foodSearch');
+  if (input && !input._bound){
+    input._bound = true;
+    input.addEventListener('input', e => { state.foodQuery = e.target.value; refreshFoodOnly(); });
+  }
+}
+
+function pageLog(){
+  const d = state.done;
+  const weekBurn = d.reduce((s,w)=>s+w.burn,0);
+  if (!d.length) return `
+    <div class="kicker rv">History</div>
+    <h1 class="rv">Activity Log</h1>
+    <p class="lede rv">Nothing burned yet. Open the library, run a session, and it lands here.</p>
+    <div class="rv" style="margin-top:24px;max-width:320px">
+      <button class="btn" data-act="open" data-route="workouts">Find a Workout</button>
+    </div>`;
+  return `
+    <div class="kicker rv">History</div>
+    <h1 class="rv">Activity Log</h1>
+    ${state.plan ? `<p class="lede rv">That's <b class="em">${weekBurn} kcal</b> burned — about ${(weekBurn / state.plan.kcal).toFixed(1)} full days of your fuel target.</p>` : ''}
+    <div class="card rv" style="display:flex;justify-content:space-around;text-align:center;padding:20px 10px;border-color:var(--ember-mid);margin-top:18px">
+      <div class="stat"><b>${d.length}</b><span>Workouts</span></div>
+      <div class="stat"><b>${weekBurn}</b><span>kcal Burned</span></div>
+      <div class="stat"><b>${d.reduce((s,w)=>s+w.duration,0)}m</b><span>Active Time</span></div>
+    </div>
+    ${[...d].reverse().map((w,i)=>`
+      <div class="card ${i%2 ? 'rv-r':'rv-l'}">
+        <div class="row">
+          <div><span class="pill">${w.tag}</span>
+            <div class="big" style="font-size:16px;margin-top:7px">${w.name}</div>
+            <div class="mut" style="font-size:12.5px;margin-top:3px">${w.duration} min · <span class="em">${w.burn} kcal</span></div>
+          </div>
+          <span style="font-size:22px">✅</span>
+        </div>
+      </div>`).join('')}`;
+}
+
+/* ================= ROUTES ================= */
+const ROUTES = {
+  goals:    () => nav('Goal Analysis', pageGoals),
+  plan:     () => state.plan ? nav('Your Plan', pagePlanFull) : nav('Goal Analysis', pageGoals),
+  calories: () => nav('Calorie Tracker', pageCalories),
+  workouts: () => nav('Workout Library', pageWorkouts),
+  log:      () => nav('Activity Log', pageLog),
+  detail:   (a) => nav('Workout', () => pageDetail(a)),
+};
+
+addEventListener('keydown', e => { if (e.key === 'ArrowLeft' && e.target.tagName !== 'INPUT') goBack(); });
+
+/* boot */
+state.draft = {};
+state.profile = null;
+state.plan = null;
+stack = [{ title:'Menu', build:pageMenu }];
+mountPage(stack[0], 0);
+
+</script>
+</body>
+</html>
