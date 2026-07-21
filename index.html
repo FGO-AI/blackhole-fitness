@@ -69,6 +69,7 @@ h1{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(1.9rem,6vw
 .opt .d{color:var(--mut);font-size:13.5px;line-height:1.5}
 .opt .arrow{margin-left:auto;color:var(--ember);font-size:22px;transition:transform .3s}
 .opt:hover .arrow{transform:translateX(6px)}
+.opt.mine{border-color:var(--ember-mid);box-shadow:0 6px 28px rgba(255,122,24,.14)}
 
 /* ============ CARDS / LISTS ============ */
 .card{background:var(--card);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:16px;padding:16px;margin-bottom:12px}
@@ -1703,44 +1704,110 @@ const CAT_LABEL = {
   running:"Running", cycling:"Cycling", swimming:"Swimming", other:"Other Cardio",
   balanced:"Balanced", recovery:"Recovery", mobility:"Mobility", conditioning:"Cardio",
 };
+const GOAL_BLURB = {
+  lose:"Eat a bit less, move a bit more, and lean out.",
+  gain:"Eat more, lift heavy, and give your body what it needs to grow.",
+  endure:"Build the stamina to go longer without running out of gas.",
+  maintain:"Stay steady with balanced workouts and eating — nothing extreme.",
+};
+const CAT_BLURB = {
+  fatburn:"Short, intense bursts that torch calories fast.",
+  cardio:"Get your heart pumping and burn calories steadily.",
+  upperbody:"Chest, back, shoulders & arms.",
+  lowerbody:"Legs, glutes & hips.",
+  compound:"Big multi-muscle lifts for full-body strength.",
+  running:"Hit the pavement or treadmill at your own pace.",
+  cycling:"Pedal your way to a stronger heart and legs.",
+  swimming:"Low-impact, full-body endurance in the water.",
+  other:"Rowing, stairs, jump rope — cardio that isn't running, biking or swimming.",
+  balanced:"A bit of everything — nothing skipped, nothing overdone.",
+  recovery:"Slow it down with stretching, yoga & mindful movement.",
+  mobility:"Loosen up tight spots and move more freely.",
+  conditioning:"Get your heart pumping and burn calories steadily.",
+};
 
+/* ---- Level 1: goal picker ---- */
 function pageWorkouts(){
   const mineId = state.goal;
   const order = mineId
     ? [GOALS.find(x => x.id === mineId), ...GOALS.filter(x => x.id !== mineId)]
     : GOALS;
-
-  const blocks = order.map(goal => {
-    const spec = WORKOUTS_SPECIALIZED[goal.id];
-    const mine = goal.id === mineId;
-    const goalHeader = `
-      <div class="rv" style="margin:42px 0 4px;font-family:'Unbounded',sans-serif;font-weight:700;font-size:1.15rem;${mine ? 'color:var(--ember)' : ''}">
-        ${goal.icon} ${goal.label}${mine ? ' · your goal' : ''}
-      </div>`;
-    const cats = Object.keys(spec).map(cat => `
-      <div class="sec ${mine ? 'em' : ''} rv">${CAT_LABEL[cat] || cat} · ${spec[cat].length} sessions · ${(EXERCISE_DB[cat] || []).length} movements</div>
-      ${spec[cat].map((w,i)=>`
-        <div class="card click ${i%2 ? 'rv-r':'rv-l'}" data-act="open" data-route="detail" data-g="${goal.id}" data-wname="${encodeURIComponent(w.name)}">
-          <div class="row">
-            <div>
-              <span class="pill ${mine ? 'em' : ''}">${w.tag}</span>
-              <div class="big" style="font-size:16px;margin-top:7px">${w.name}</div>
-              <div class="mut" style="font-size:12.5px;margin-top:3px">${w.duration} min · ~${w.burn} kcal · intensity ${COACH[w.tag] ? COACH[w.tag].rpe : '7 / 10'}</div>
-            </div>
-            <span style="color:var(--ember);font-size:20px">→</span>
-          </div>
-        </div>`).join('')}`).join('');
-    return goalHeader + cats;
-  }).join('');
-
   const total = GOALS.reduce((s,goal) => s + Object.values(WORKOUTS_SPECIALIZED[goal.id]).flat().length, 0);
+
   return `
     <div class="kicker rv">The library · ${total} workouts</div>
-    <h1 class="rv">Every workout,<br>one orbit away.</h1>
+    <h1 class="rv">What are you<br>training for?</h1>
     <p class="lede rv">${mineId
-      ? `Your ${GOALS.find(x=>x.id===mineId).label.toLowerCase()} sections come first, marked in ember.`
-      : 'All goals, all focus areas. Run the Goal Analysis to pin yours to the top.'}</p>
-    ${blocks}`;
+      ? `Your ${GOALS.find(x=>x.id===mineId).label.toLowerCase()} goal is marked below.`
+      : 'Pick a goal to see its focus areas. Run the Goal Analysis to pin yours here.'}</p>
+    <div style="height:26px"></div>
+    ${order.map((goal,i) => {
+      const spec = WORKOUTS_SPECIALIZED[goal.id];
+      const nCats = Object.keys(spec).length;
+      const nWorkouts = Object.values(spec).flat().length;
+      const mine = goal.id === mineId;
+      return `
+      <div class="opt ${mine ? 'mine' : ''} ${i%2 ? 'rv-r':'rv-l'}" data-act="open" data-route="libGoal" data-g="${goal.id}">
+        <span style="font-size:26px">${goal.icon}</span>
+        <div>
+          <div class="t">${goal.label}${mine ? ' <span class="pill em">Your goal</span>' : ''}</div>
+          <div class="d">${GOAL_BLURB[goal.id] || goal.desc}</div>
+          <div class="mut" style="font-size:11px;letter-spacing:.08em;margin-top:5px">${nCats} focus area${nCats!==1?'s':''} · ${nWorkouts} workouts</div>
+        </div>
+        <span class="arrow">→</span>
+      </div>`;
+    }).join('')}`;
+}
+
+/* ---- Level 2: focus-area picker within one goal ---- */
+function pageLibGoal({g}){
+  const goal = GOALS.find(x => x.id === g);
+  const spec = WORKOUTS_SPECIALIZED[g];
+  const cats = Object.keys(spec);
+
+  return `
+    <div class="kicker rv">Library / ${goal.label}</div>
+    <h1 class="rv">Pick a focus area</h1>
+    <p class="lede rv">${GOAL_BLURB[g] || goal.desc}</p>
+    <div style="height:26px"></div>
+    ${cats.map((cat,i) => {
+      const list = spec[cat];
+      const moves = (EXERCISE_DB[cat] || []).length;
+      return `
+      <div class="opt ${i%2 ? 'rv-r':'rv-l'}" data-act="open" data-route="libCat" data-g="${g}" data-cat="${cat}">
+        <span class="num">0${i+1}</span>
+        <div>
+          <div class="t">${CAT_LABEL[cat] || cat}</div>
+          <div class="d">${CAT_BLURB[cat] || ''}</div>
+          <div class="mut" style="font-size:11px;letter-spacing:.08em;margin-top:5px">${list.length} workout${list.length!==1?'s':''} · ${moves} move${moves!==1?'s':''}</div>
+        </div>
+        <span class="arrow">→</span>
+      </div>`;
+    }).join('')}`;
+}
+
+/* ---- Level 3: workout list within one focus area ---- */
+function pageLibCat({g, cat}){
+  const goal = GOALS.find(x => x.id === g);
+  const list = WORKOUTS_SPECIALIZED[g][cat];
+  const mine = g === state.goal;
+
+  return `
+    <div class="kicker rv">Library / ${goal.label} / ${CAT_LABEL[cat] || cat}</div>
+    <h1 class="rv">${CAT_LABEL[cat] || cat}</h1>
+    <p class="lede rv">${CAT_BLURB[cat] || ''}</p>
+    <div style="height:10px"></div>
+    ${list.map((w,i)=>`
+      <div class="card click ${i%2 ? 'rv-r':'rv-l'}" data-act="open" data-route="detail" data-g="${g}" data-wname="${encodeURIComponent(w.name)}">
+        <div class="row">
+          <div>
+            <span class="pill ${mine ? 'em' : ''}">${w.tag}</span>
+            <div class="big" style="font-size:16px;margin-top:7px">${w.name}</div>
+            <div class="mut" style="font-size:12.5px;margin-top:3px">${w.duration} min · ~${w.burn} kcal · intensity ${COACH[w.tag] ? COACH[w.tag].rpe : '7 / 10'}</div>
+          </div>
+          <span style="color:var(--ember);font-size:20px">→</span>
+        </div>
+      </div>`).join('')}`;
 }
 
 function pageDetail({g, wname}){
@@ -2080,6 +2147,8 @@ const ROUTES = {
   plan:     () => state.plan ? nav('Your Plan', pagePlanFull) : nav('Goal Analysis', pageGoals),
   calories: () => nav('Calorie Tracker', pageCalories),
   workouts: () => nav('Workout Library', pageWorkouts),
+  libGoal:  (a) => nav(GOALS.find(x=>x.id===a.g).label, () => pageLibGoal(a)),
+  libCat:   (a) => nav(CAT_LABEL[a.cat] || a.cat, () => pageLibCat(a)),
   log:      () => nav('Activity Log', pageLog),
   detail:   (a) => nav('Workout', () => pageDetail(a)),
 };
