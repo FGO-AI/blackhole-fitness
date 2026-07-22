@@ -37,6 +37,12 @@ header{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:c
 #back:hover{border-color:var(--accent)}
 #back.show{display:block}
 
+/* ============ ICONS ============ */
+.ico{display:inline-block;vertical-align:-.18em;flex-shrink:0}
+.ico-em{width:.82em;height:.82em;vertical-align:-.04em}   /* scales with its heading */
+.gico{display:flex;align-items:center;justify-content:center;width:30px;color:var(--ember);flex-shrink:0}
+.brand .ico{color:var(--accent);margin-right:3px;vertical-align:-.2em}
+
 /* ============ PAGE STAGE & TRANSITIONS ============ */
 #stage{position:fixed;inset:0;z-index:10}
 .page{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;padding:84px 0 70px;
@@ -146,7 +152,7 @@ h1{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(1.9rem,6vw
 .mealtab{white-space:nowrap;padding:9px 15px;border:1px solid var(--border);border-radius:99px;cursor:pointer;font-size:13px;color:var(--mut);background:rgba(22,26,35,.6);transition:all .25s;flex-shrink:0;display:flex;align-items:center;gap:7px;user-select:none}
 .mealtab.on{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
 .mealtab .mt-k{font-size:10.5px;opacity:.75}
-.fav{cursor:pointer;font-size:17px;line-height:1;color:var(--mut);transition:transform .2s,color .2s;user-select:none;flex-shrink:0;padding:4px}
+.fav{cursor:pointer;display:flex;align-items:center;line-height:0;color:var(--mut);transition:transform .2s,color .2s;user-select:none;flex-shrink:0;padding:4px}
 .fav.on{color:var(--ember)}
 .fav:active{transform:scale(1.3)}
 /* food detail sheet */
@@ -191,19 +197,50 @@ h1{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(1.9rem,6vw
 
 <header>
   <button id="back">‹ Back</button>
-  <div class="brand">◉ BLACKHOLE <b>FITNESS</b></div>
+  <div class="brand"><svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.6"/><circle cx="12" cy="12" r="3.4" fill="currentColor" stroke="none"/></svg> BLACKHOLE <b>FITNESS</b></div>
   <div id="crumb">Menu</div>
 </header>
 
 <main id="stage"></main>
 
 <script>
+/* ================= ICONS =================
+   Inline SVG set — no emoji, no icon font, no extra requests. Everything is
+   drawn with currentColor so it inherits the ember/accent palette, scales
+   cleanly, and renders identically on every OS and browser. */
+const ICONS = {
+  flame:    '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.4-.5-2-1-3-1.1-2.1-.2-4 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.2.4-2.3 1-3a2.5 2.5 0 0 0 2.5 2.5Z"/>',
+  dumbbell: '<rect x="1.6" y="9.2" width="3.2" height="5.6" rx="1.2"/><rect x="5.6" y="6" width="3.6" height="12" rx="1.5"/>'
+          + '<rect x="14.8" y="6" width="3.6" height="12" rx="1.5"/><rect x="19.2" y="9.2" width="3.2" height="5.6" rx="1.2"/><path d="M9.2 12h5.6"/>',
+  stopwatch:'<circle cx="12" cy="13.8" r="8"/><path d="M9.7 2.4h4.6M12 13.7 15.3 10.4"/>',
+  scale:    '<path d="M12 3.2v17.6M7.5 20.8h9M3 7.2h2.2c2.1 0 5-1 6.8-2 1.8 1 4.7 2 6.8 2H21"/><path d="m2.4 15.6 3-7.6 3 7.6a5 5 0 0 1-6 0Z"/><path d="m15.6 15.6 3-7.6 3 7.6a5 5 0 0 1-6 0Z"/>',
+  sun:      '<circle cx="12" cy="12" r="4"/><path d="M12 2.2v2M12 19.8v2M4.5 4.5l1.4 1.4M18.1 18.1l1.4 1.4M2.2 12h2M19.8 12h2M4.5 19.5l1.4-1.4M18.1 5.9l1.4-1.4"/>',
+  halfsun:  '<circle cx="12" cy="12" r="8.4"/><path d="M12 3.6a8.4 8.4 0 0 1 0 16.8Z" fill="currentColor" stroke="none"/>',
+  moon:     '<path d="M20.8 13.1A8.6 8.6 0 1 1 10.9 3.2a6.7 6.7 0 0 0 9.9 9.9Z"/>',
+  sparkle:  '<path d="m12 2.8 2.2 7 7 2.2-7 2.2-2.2 7-2.2-7-7-2.2 7-2.2Z"/>',
+  star:     '<path d="m12 2.9 2.85 5.78 6.38.93-4.62 4.5 1.09 6.35L12 17.46l-5.7 3 1.09-6.35-4.62-4.5 6.38-.93Z"/>',
+  ring:     '<circle cx="12" cy="12" r="8.6"/><circle cx="12" cy="12" r="3.4" fill="currentColor" stroke="none"/>',
+  check:    '<circle cx="12" cy="12" r="8.6"/><path d="m8.2 12.3 2.6 2.6 5-5.6"/>',
+};
+/* icon('flame', 26, {label:'Lose weight'}) -> <svg …>  */
+function icon(name, size = 20, o = {}){
+  const d = ICONS[name];
+  if (!d) return '';
+  const a11y = o.label ? `role="img" aria-label="${o.label}"` : 'aria-hidden="true" focusable="false"';
+  return `<svg class="ico${o.cls ? ' ' + o.cls : ''}" width="${size}" height="${size}" viewBox="0 0 24 24" `
+       + `fill="${o.fill ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="${o.weight || 1.6}" `
+       + `stroke-linecap="round" stroke-linejoin="round" ${a11y}>${d}</svg>`;
+}
+/* favourite toggle — filled star when on, outline when off */
+const starIcon = (on, size = 17) =>
+  icon('star', size, { fill: on, label: on ? 'Remove from favourites' : 'Add to favourites' });
+
 /* ================= DATA ================= */
 const GOALS = [
-  { id:"lose",     label:"Lose Weight",  icon:"🔥", calories:1600, desc:"Calorie deficit + cardio focus" },
-  { id:"gain",     label:"Build Muscle", icon:"💪", calories:2800, desc:"Surplus + resistance training" },
-  { id:"endure",   label:"Endurance",    icon:"🏃", calories:2200, desc:"Steady cardio & stamina work" },
-  { id:"maintain", label:"Stay Fit",     icon:"⚖️", calories:2000, desc:"Balanced training & nutrition" },
+  { id:"lose",     label:"Lose Weight",  icon:"flame",     calories:1600, desc:"Calorie deficit + cardio focus" },
+  { id:"gain",     label:"Build Muscle", icon:"dumbbell",  calories:2800, desc:"Surplus + resistance training" },
+  { id:"endure",   label:"Endurance",    icon:"stopwatch", calories:2200, desc:"Steady cardio & stamina work" },
+  { id:"maintain", label:"Stay Fit",     icon:"scale",     calories:2000, desc:"Balanced training & nutrition" },
 ];
 const WORKOUTS_SPECIALIZED = {
   lose:{
@@ -1367,7 +1404,7 @@ function pageMenu(){
   const pf = state.profile;
   const first = pf ? pf.name.trim().split(' ')[0] : null;
   const opts = pf ? [
-    { t:"Your Plan",       d:`${goalData().icon} ${goalData().label} · ${state.plan.kcal} kcal/day · ${state.profile.days}x per week`, route:"plan" },
+    { t:"Your Plan",       d:`${icon(goalData().icon, 15)} ${goalData().label} · ${state.plan.kcal} kcal/day · ${state.profile.days}x per week`, route:"plan" },
     { t:"Calorie Tracker", d:`Log fuel against your ${state.plan.kcal} kcal target and macro split`, route:"calories" },
     { t:"Workout Library", d:"Every session, organized by what it does for you", route:"workouts" },
     { t:"Activity Log",    d:"Everything you've burned so far", route:"log" },
@@ -1404,7 +1441,7 @@ function pageGoals(){
     <div style="height:26px"></div>
     ${GOALS.map((g,i)=>`
       <div class="opt ${i%2 ? 'rv-r':'rv-l'}" data-act="wizGoal" data-id="${g.id}">
-        <span style="font-size:26px">${g.icon}</span>
+        <span class="gico">${icon(g.icon, 28, { label:g.label })}</span>
         <div><div class="t">${g.label}</div><div class="d">${g.desc}</div></div>
         <span class="arrow">→</span>
       </div>`).join('')}`;
@@ -1552,7 +1589,7 @@ function pagePlanFull(){
 
   return `
     <div class="kicker rv">Analysis complete · engineered for ${first}</div>
-    <h1 class="rv">${g.icon} Your ${g.label}<br>Blueprint</h1>
+    <h1 class="rv">${icon(g.icon, 34, { weight:1.5, cls:'em ico-em' })} Your ${g.label}<br>Blueprint</h1>
     <p class="lede rv">A complete system — fuel, macros, timeline and a balanced training week, all computed from your body and lifestyle.</p>
 
     <!-- ===== HEADLINE PROJECTION ===== -->
@@ -1748,7 +1785,7 @@ function pageWorkouts(){
       const mine = goal.id === mineId;
       return `
       <div class="opt ${mine ? 'mine' : ''} ${i%2 ? 'rv-r':'rv-l'}" data-act="open" data-route="libGoal" data-g="${goal.id}">
-        <span style="font-size:26px">${goal.icon}</span>
+        <span class="gico">${icon(goal.icon, 28, { label:goal.label })}</span>
         <div>
           <div class="t">${goal.label}${mine ? ' <span class="pill em">Your goal</span>' : ''}</div>
           <div class="d">${GOAL_BLURB[goal.id] || goal.desc}</div>
@@ -1909,7 +1946,7 @@ function saveCustomFromForm(){
   refreshFoodOnly();
 }
 
-const MEAL_ICON = { Breakfast:'☀', Lunch:'◑', Dinner:'☾', Snack:'✦' };
+const MEAL_ICON = { Breakfast:'sun', Lunch:'halfsun', Dinner:'moon', Snack:'sparkle' };
 
 /* the dynamic part — re-rendered on every keystroke / add / remove / sheet change */
 function foodZone(){
@@ -1944,7 +1981,7 @@ function foodZone(){
       return `
       <div style="margin-bottom:14px">
         <div class="row" style="margin-bottom:7px">
-          <span style="font-weight:700;font-size:14px">${MEAL_ICON[meal]} ${meal}</span>
+          <span style="font-weight:700;font-size:14px">${icon(MEAL_ICON[meal], 15, { cls:'em' })} ${meal}</span>
           <span class="mut" style="font-size:12px">${mk} kcal</span>
         </div>
         ${items.length ? items.map((e,i)=>`
@@ -1983,7 +2020,7 @@ function foodZone(){
         <div style="font-weight:600;font-size:14px">${f.name}</div>
         <div class="mut" style="font-size:11.5px;margin-top:2px">${f.srv} · ${f.calories} kcal · P ${f.p} · C ${f.c} · F ${f.f}${(q||state.foodView!=='browse')&&f.cat?` · ${f.cat}`:''}</div>
       </div>
-      <span class="fav ${isFav(f)?'on':''}" data-act="toggleFav" data-fname="${encodeURIComponent(f.name)}">${isFav(f)?'★':'☆'}</span>
+      <span class="fav ${isFav(f)?'on':''}" data-act="toggleFav" data-fname="${encodeURIComponent(f.name)}">${starIcon(isFav(f))}</span>
     </div>`;
 
   const browser = `
@@ -1991,14 +2028,14 @@ function foodZone(){
     <div class="mealtabs">
       ${Object.keys(state.meals).map(m=>`
         <span class="mealtab ${state.activeMeal===m?'on':''}" data-act="setMeal" data-meal="${m}">
-          ${MEAL_ICON[m]} ${m}<span class="mt-k">${mealKcal(m)}</span>
+          ${icon(MEAL_ICON[m], 15)} ${m}<span class="mt-k">${mealKcal(m)}</span>
         </span>`).join('')}
     </div>
 
     <div class="seg">
       <button class="${state.foodView==='browse'?'on':''}" data-act="setFoodView" data-view="browse">Search</button>
       <button class="${state.foodView==='recents'?'on':''}" data-act="setFoodView" data-view="recents">Recent</button>
-      <button class="${state.foodView==='favorites'?'on':''}" data-act="setFoodView" data-view="favorites">Favorites ★</button>
+      <button class="${state.foodView==='favorites'?'on':''}" data-act="setFoodView" data-view="favorites">Favorites ${icon('star', 13, { fill:true })}</button>
     </div>
 
     ${state.foodView==='browse' ? `
@@ -2013,7 +2050,7 @@ function foodZone(){
     ${shown.length ? shown.map(foodRow).join('')
       : `<div class="empty">${
           state.foodView==='recents' ? 'No recent foods yet — log something and it lands here.'
-        : state.foodView==='favorites' ? 'No favorites yet. Tap the ☆ on any food to save it.'
+        : state.foodView==='favorites' ? `No favorites yet. Tap the ${icon('star', 14)} on any food to save it.`
         : `No food matches "${state.foodQuery}".`}</div>`}
     ${results && results.length > 60 ? `<div class="empty">Showing first 60 of ${results.length} — keep typing to narrow it down.</div>` : ''}
 
@@ -2053,7 +2090,7 @@ function foodZone(){
             <div style="font-family:'Unbounded';font-weight:700;font-size:19px;line-height:1.2">${f.name}</div>
             <div class="mut" style="font-size:12.5px;margin-top:3px">${f.srv} · ${f.cat||''}</div>
           </div>
-          <span class="fav ${isFav(f)?'on':''}" style="font-size:22px" data-act="toggleFav" data-fname="${encodeURIComponent(f.name)}">${isFav(f)?'★':'☆'}</span>
+          <span class="fav ${isFav(f)?'on':''}" data-act="toggleFav" data-fname="${encodeURIComponent(f.name)}">${starIcon(isFav(f), 22)}</span>
         </div>
 
         <div class="qstep">
@@ -2136,7 +2173,7 @@ function pageLog(){
             <div class="big" style="font-size:16px;margin-top:7px">${w.name}</div>
             <div class="mut" style="font-size:12.5px;margin-top:3px">${w.duration} min · <span class="em">${w.burn} kcal</span></div>
           </div>
-          <span style="font-size:22px">✅</span>
+          <span class="gn" style="display:flex">${icon('check', 24, { label:'Completed' })}</span>
         </div>
       </div>`).join('')}`;
 }
