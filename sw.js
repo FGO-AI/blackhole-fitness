@@ -1,7 +1,7 @@
 /* Blackhole Fitness — service worker
    Cache-first for the app shell (+ the one CDN dependency), network fallback,
    and the cached page as a last resort when offline. */
-const CACHE = 'bhf-v2';
+const CACHE = 'bhf-v1';
 
 const LOCAL_ASSETS = [
   './',
@@ -12,17 +12,14 @@ const LOCAL_ASSETS = [
   './icon-512.png',
   './icon-512-maskable.png',
 ];
-/* external deps — best-effort so a CDN hiccup can't fail the install */
-const CDN_ASSETS = [
-  'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
-  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js',
-];
+const THREE_URL = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
 
 self.addEventListener('install', (e) => {
   e.waitUntil((async () => {
     const cache = await caches.open(CACHE);
     await cache.addAll(LOCAL_ASSETS);
-    for (const url of CDN_ASSETS) { try { await cache.add(url); } catch (err) {} }
+    /* best-effort: a CDN hiccup must not fail the whole install */
+    try { await cache.add(THREE_URL); } catch (err) {}
     await self.skipWaiting();
   })());
 });
