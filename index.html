@@ -2,8 +2,29 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Blackhole Fitness</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Blackhole Fitness — Train inside your own orbit</title>
+<meta name="description" content="A personal fitness engine: calorie and macro targets built from your body, a weekly training plan, food logging and a workout library — wrapped in a living black-hole universe.">
+<meta name="theme-color" content="#0d0f14">
+
+<!-- ===== Rich link previews (Open Graph + Twitter) ===== -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="Blackhole Fitness">
+<meta property="og:description" content="Calories, macros and a weekly training plan engineered from your body — inside a living black-hole universe.">
+<meta property="og:image" content="og-image.png">
+<meta property="og:url" content="https://fgo-ai.github.io/blackhole-fitness/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Blackhole Fitness">
+<meta name="twitter:description" content="Calories, macros and a weekly training plan engineered from your body — inside a living black-hole universe.">
+<meta name="twitter:image" content="og-image.png">
+
+<!-- ===== PWA / installable ===== -->
+<link rel="manifest" href="manifest.json">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Blackhole">
+<link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CjxkZWZzPgo8cmFkaWFsR3JhZGllbnQgaWQ9ImQiIGN4PSI1MCUiIGN5PSI1MCUiIHI9IjUwJSI+CjxzdG9wIG9mZnNldD0iNTIlIiBzdG9wLWNvbG9yPSIjMDAwMDAwIi8+CjxzdG9wIG9mZnNldD0iNTglIiBzdG9wLWNvbG9yPSIjZmY5YTNkIi8+CjxzdG9wIG9mZnNldD0iNjYlIiBzdG9wLWNvbG9yPSIjZjA2NTExIi8+CjxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzBkMGYxNCIgc3RvcC1vcGFjaXR5PSIwIi8+CjwvcmFkaWFsR3JhZGllbnQ+CjwvZGVmcz4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiMwZDBmMTQiLz4KPGNpcmNsZSBjeD0iMzIiIGN5PSIzMiIgcj0iMjYiIGZpbGw9InVybCgjZCkiLz4KPGNpcmNsZSBjeD0iMzIiIGN5PSIzMiIgcj0iMTUiIGZpbGw9IiMwMDAwMDAiLz4KPC9zdmc+Cg==">
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -38,6 +59,8 @@ header{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:c
 #back.show{display:block}
 
 /* ============ ICONS ============ */
+.linkbtn{background:none;border:none;color:var(--mut);font-family:inherit;font-size:12px;letter-spacing:.14em;text-transform:uppercase;cursor:pointer;padding:8px 10px;border-radius:8px;transition:color .2s}
+.linkbtn:hover{color:var(--danger)}
 .ico{display:inline-block;vertical-align:-.18em;flex-shrink:0}
 .ico-em{width:.82em;height:.82em;vertical-align:-.04em}   /* scales with its heading */
 .gico{display:flex;align-items:center;justify-content:center;width:30px;color:var(--ember);flex-shrink:0}
@@ -724,6 +747,43 @@ const state = {
 const ALL_FOODS = Object.entries(FOOD_DB).flatMap(([cat, items]) => items.map(f => ({...f, cat})));
 const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+/* ================= PERSISTENCE =================
+   Only the durable slice is saved — never transient UI (open sheets, search
+   text, active tab). Save runs after every interaction; load merges on boot
+   and can never throw, so corrupt or missing storage just yields fresh state. */
+const SAVE_KEY = 'bhf.state.v1';
+const DURABLE  = ['goal','profile','plan','done','meals','recents','favorites','customFoods'];
+const freshMeals = () => ({ Breakfast:[], Lunch:[], Dinner:[], Snack:[] });
+
+function saveState(){
+  try {
+    const slice = {};
+    for (const k of DURABLE) slice[k] = state[k];
+    localStorage.setItem(SAVE_KEY, JSON.stringify(slice));
+  } catch (e) { /* storage disabled or full — stay in-memory */ }
+}
+function loadState(){
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    if (!saved || typeof saved !== 'object') return;
+    for (const k of DURABLE) if (saved[k] != null) state[k] = saved[k];
+    /* repair shapes so a partial/old blob can't crash a render */
+    if (!state.meals || typeof state.meals !== 'object') state.meals = freshMeals();
+    for (const m of Object.keys(freshMeals())) if (!Array.isArray(state.meals[m])) state.meals[m] = [];
+    for (const k of ['done','recents','favorites','customFoods']) if (!Array.isArray(state[k])) state[k] = [];
+  } catch (e) { /* corrupt blob — fall back to whatever defaults are set */ }
+}
+function resetState(){
+  state.goal = null; state.profile = null; state.plan = null;
+  state.done = []; state.meals = freshMeals();
+  state.recents = []; state.favorites = []; state.customFoods = [];
+  state.draft = {}; state.sheet = null;
+  state.foodCat = 'All'; state.foodQuery = ''; state.activeMeal = 'Breakfast'; state.foodView = 'browse';
+}
+function clearSavedData(){ try { localStorage.removeItem(SAVE_KEY); } catch (e) {} }
+
 /* ====== LIVING BACKGROUND · raytraced black hole with gravitational lensing ======
    Light rays are bent through a Schwarzschild-style geodesic approximation, so the
    far side of the disk appears folded above and below the hole — like the real thing.
@@ -733,9 +793,21 @@ let curScroll = 0, pullKick = 0;
 if (window.THREE) {
   const canvas = document.getElementById('bhCanvas');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias:false, powerPreference:'high-performance' });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
   renderer.setClearColor(0x0d0f14, 1);
-  const RES_SCALE = 0.85;               /* render scale; aura + dither hide the rest */
+
+  /* ===== ADAPTIVE QUALITY =====
+     Four tiers from full down to minimum. Each trades render scale, pixel
+     ratio and raymarch step budget. The frame loop measures real render cost
+     and steps between tiers so a weak phone settles low and a laptop stays
+     full — no recompile, just a uniform + a resize. */
+  const TIERS = [
+    { scale:0.85, pr:1.5,  steps:260 },   /* 0 · full     */
+    { scale:0.72, pr:1.25, steps:200 },   /* 1 · high     */
+    { scale:0.60, pr:1.0,  steps:150 },   /* 2 · medium   */
+    { scale:0.50, pr:1.0,  steps:96  },   /* 3 · minimum  */
+  ];
+  let tier = 0;
+
   const scene = new THREE.Scene();
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
@@ -746,10 +818,11 @@ if (window.THREE) {
     uRot:  { value: new THREE.Matrix3() },
     uPulse:{ value: 0 },
     uDist: { value: 12.5 },
+    uMaxSteps: { value: 260 },
   };
 
   const frag = `
-uniform vec2 uRes; uniform float uTime; uniform float uRoll; uniform mat3 uRot; uniform float uPulse; uniform float uDist;
+uniform vec2 uRes; uniform float uTime; uniform float uRoll; uniform mat3 uRot; uniform float uPulse; uniform float uDist; uniform float uMaxSteps;
 
 float hash(vec2 p){ p = fract(p*vec2(123.34,345.45)); p += dot(p,p+34.345); return fract(p.x*p.y); }
 float noise(vec2 p){
@@ -885,6 +958,7 @@ void main(){
   /* (1) geodesic integration — bends both disk hits AND the background sky,
      wrapping stars around the shadow like an infinite fisheye */
   for(int i=0; i<260; i++){
+    if(float(i) >= uMaxSteps) break;            /* adaptive budget — dynamic quality */
     float r = length(pos);
     minR = min(minR, r);
     if(r < 1.0){ captured = true; break; }     /* (5) crossed horizon */
@@ -963,12 +1037,28 @@ void main(){
 
   const dbs = new THREE.Vector2();
   function sizeRenderer(){
-    renderer.setSize(innerWidth*RES_SCALE, innerHeight*RES_SCALE, false);
+    const q = TIERS[tier];
+    renderer.setPixelRatio(Math.min(devicePixelRatio, q.pr));
+    renderer.setSize(innerWidth*q.scale, innerHeight*q.scale, false);
     renderer.getDrawingBufferSize(dbs);
     uniforms.uRes.value.copy(dbs);
+    uniforms.uMaxSteps.value = q.steps;
   }
   sizeRenderer();
   addEventListener('resize', sizeRenderer);
+
+  /* rolling render-cost sampler; steps the tier every ~2s (dead zone 10–26ms) */
+  let costAccum = 0, costFrames = 0, lastTierAt = performance.now(), lastAvg = 0;
+  function adaptQuality(now){
+    if (now - lastTierAt < 2000 || costFrames === 0) return;
+    const avg = costAccum / costFrames;
+    lastAvg = avg;
+    costAccum = 0; costFrames = 0; lastTierAt = now;
+    if (avg > 26 && tier < TIERS.length - 1)      { tier++; sizeRenderer(); }
+    else if (avg < 10 && tier > 0)                { tier--; sizeRenderer(); }
+  }
+  /* read-only diagnostic: current quality tier + live step budget + last sample */
+  window.__bhPerf = () => ({ tier, steps: uniforms.uMaxSteps.value, scale: TIERS[tier].scale, avg: +lastAvg.toFixed(2) });
 
   const BASE_TILT = -0.19;             /* just above the plane, like the reference */
   const eul = new THREE.Euler(), m4 = new THREE.Matrix4();
@@ -1025,7 +1115,12 @@ void main(){
     uniforms.uRoll.value = rollSmooth;
     uniforms.uTime.value = t * .001;
     uniforms.uPulse.value = 0.5 + 0.5 * Math.sin(t * 0.0007);     /* slow flare pulse */
+
+    const r0 = performance.now();
     renderer.render(scene, camera);
+    costAccum += performance.now() - r0; costFrames++;
+    adaptQuality(t);
+
     if (!RM) requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
@@ -1083,6 +1178,18 @@ function mountPage(entry, dir){
   crumb.textContent = entry.title;
   backBtn.classList.toggle('show', stack.length > 1);
 }
+/* Tear every page out of the stage and remount the menu fresh — used after a
+   data wipe, where a normal dir-based transition (which keeps the old page for
+   its slide-out) would strand the pre-wipe page in the DOM. */
+function resetToMenu(){
+  stage.querySelectorAll('.page').forEach(p => {
+    p.querySelectorAll('.rv,.rv-l,.rv-r').forEach(el => io.unobserve(el));
+    p.remove();
+  });
+  current = null;
+  stack = [{ title:'Menu', build:pageMenu }];
+  mountPage(stack[0], 0);
+}
 function nav(title, build){ stack.push({title, build}); mountPage(stack[stack.length-1], 1); }
 function goBack(){
   if (stack.length < 2) return;
@@ -1112,6 +1219,12 @@ function bindActions(page){
       const a = el.dataset;
       /* every interaction tugs you closer to the hole */
       pullKick = Math.min(pullKick + 0.3, 1);
+      if (a.act === 'clearData'){
+        if (confirm('Clear your plan, food log, favorites and workout history? This can’t be undone.')) {
+          clearSavedData(); resetState(); resetToMenu();
+        }
+        return;
+      }
       if (a.act === 'open')      ROUTES[a.route](a);
       /* ---- food logging ---- */
       if (a.act === 'openFood') {          /* open the detail sheet for a food */
@@ -1181,6 +1294,9 @@ function bindActions(page){
         nav('Your Plan', pagePlanFull);
       }
       if (a.act === 'retake')   ROUTES.goals();
+
+      /* durable slice persisted after every interaction */
+      saveState();
     });
   });
 }
@@ -1429,7 +1545,8 @@ function pageMenu(){
         <div><div class="t">${o.t}</div><div class="d">${o.d}</div></div>
         <span class="arrow">→</span>
       </div>`).join('')}
-    <p class="mut rv" style="text-align:center;font-size:12px;letter-spacing:.2em;margin:30px 0 10px">CHOOSE AN OPTION · THE PAGE SLIDES RIGHT</p>`;
+    <p class="mut rv" style="text-align:center;font-size:12px;letter-spacing:.2em;margin:30px 0 10px">CHOOSE AN OPTION · THE PAGE SLIDES RIGHT</p>
+    ${pf ? `<p class="rv" style="text-align:center;margin:0 0 14px"><button class="linkbtn" data-act="clearData">Clear my data</button></p>` : ''}`;
 }
 
 /* --- wizard step 1: goal --- */
@@ -2196,8 +2313,16 @@ addEventListener('keydown', e => { if (e.key === 'ArrowLeft' && e.target.tagName
 state.draft = {};
 state.profile = null;
 state.plan = null;
+loadState();                 /* restore the durable slice if a valid one exists */
 stack = [{ title:'Menu', build:pageMenu }];
 mountPage(stack[0], 0);
+
+/* ================= SERVICE WORKER =================
+   Guarded behind an http(s) check so it's a silent no-op on file:// or in
+   browsers without SW support. */
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
 
 </script>
 </body>
