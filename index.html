@@ -239,8 +239,11 @@ h1{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(1.9rem,6vw
    turn on cross-device account sync. Leave them as the placeholders and the
    app runs exactly as before — guest mode, saved locally on this device only.
    Run supabase-schema.sql once in the Supabase SQL Editor first. */
-const SUPABASE_URL = 'YOUR_SUPABASE_PROJECT_URL';
-const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+/* The key below is the PUBLISHABLE (anon) key — it is designed to ship in
+   client code. Row Level Security is what protects the data. Never put the
+   secret/service_role key here; it bypasses RLS. */
+const SUPABASE_URL = 'https://kfoifswvyjppywyeurrq.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_5grvc7xyGIAfk-hYOfaIlA_iavbyUNg';
 
 /* Defensive init: null unless the config is real AND the CDN script loaded.
    `supa` being null is the single signal for "guest/local-only mode". */
