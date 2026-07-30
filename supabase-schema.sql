@@ -14,12 +14,25 @@ create table if not exists public.app_data (
 
 alter table public.app_data enable row level security;
 
--- A user may only touch their own row.
+-- A user may only touch their own row. One policy per operation the app
+-- performs: select (pull on sign-in), insert + update (the upsert on save),
+-- and delete ("Clear my data"). With RLS on, an operation with NO matching
+-- policy silently affects zero rows — so a missing delete policy would make
+-- "Clear my data" wipe local storage while leaving the cloud row behind.
+-- (dropped first so this whole script is safe to re-run — Postgres has no
+--  "create policy if not exists")
+drop policy if exists "select own row" on public.app_data;
+drop policy if exists "insert own row" on public.app_data;
+drop policy if exists "update own row" on public.app_data;
+drop policy if exists "delete own row" on public.app_data;
+
 create policy "select own row" on public.app_data for select
   using (auth.uid() = user_id);
 create policy "insert own row" on public.app_data for insert
   with check (auth.uid() = user_id);
 create policy "update own row" on public.app_data for update
+  using (auth.uid() = user_id);
+create policy "delete own row" on public.app_data for delete
   using (auth.uid() = user_id);
 
 -- Keep updated_at fresh on every write.
