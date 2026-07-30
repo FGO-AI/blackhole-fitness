@@ -28,6 +28,7 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CjxkZWZzPgo8cmFkaWFsR3JhZGllbnQgaWQ9ImQiIGN4PSI1MCUiIGN5PSI1MCUiIHI9IjUwJSI+CjxzdG9wIG9mZnNldD0iNTIlIiBzdG9wLWNvbG9yPSIjMDAwMDAwIi8+CjxzdG9wIG9mZnNldD0iNTglIiBzdG9wLWNvbG9yPSIjZmY5YTNkIi8+CjxzdG9wIG9mZnNldD0iNjYlIiBzdG9wLWNvbG9yPSIjZjA2NTExIi8+CjxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzBkMGYxNCIgc3RvcC1vcGFjaXR5PSIwIi8+CjwvcmFkaWFsR3JhZGllbnQ+CjwvZGVmcz4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiMwZDBmMTQiLz4KPGNpcmNsZSBjeD0iMzIiIGN5PSIzMiIgcj0iMjYiIGZpbGw9InVybCgjZCkiLz4KPGNpcmNsZSBjeD0iMzIiIGN5PSIzMiIgcj0iMTUiIGZpbGw9IiMwMDAwMDAiLz4KPC9zdmc+Cg==">
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
 :root{
   --bg:#0d0f14; --card:rgba(28,33,48,.72); --border:#252d3d;
@@ -61,6 +62,12 @@ header{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:c
 /* ============ ICONS ============ */
 .linkbtn{background:none;border:none;color:var(--mut);font-family:inherit;font-size:12px;letter-spacing:.14em;text-transform:uppercase;cursor:pointer;padding:8px 10px;border-radius:8px;transition:color .2s}
 .linkbtn:hover{color:var(--danger)}
+/* account sync bar */
+.acct{background:var(--card);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:22px}
+.acct-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.acct-signin{display:flex;gap:10px}
+.acct-signin .inp{flex:1;min-width:0}
+.acct-signin .btn{width:auto;flex:0 0 auto;padding:12px 22px;white-space:nowrap}
 .ico{display:inline-block;vertical-align:-.18em;flex-shrink:0}
 .ico-em{width:.82em;height:.82em;vertical-align:-.04em}   /* scales with its heading */
 .gico{display:flex;align-items:center;justify-content:center;width:30px;color:var(--ember);flex-shrink:0}
@@ -227,6 +234,25 @@ h1{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(1.9rem,6vw
 <main id="stage"></main>
 
 <script>
+/* ================= ACCOUNT SYNC CONFIG =================
+   OPTIONAL. Fill these in from your Supabase project's Settings → API page to
+   turn on cross-device account sync. Leave them as the placeholders and the
+   app runs exactly as before — guest mode, saved locally on this device only.
+   Run supabase-schema.sql once in the Supabase SQL Editor first. */
+const SUPABASE_URL = 'YOUR_SUPABASE_PROJECT_URL';
+const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+
+/* Defensive init: null unless the config is real AND the CDN script loaded.
+   `supa` being null is the single signal for "guest/local-only mode". */
+let supa = null;
+try {
+  const configured = SUPABASE_URL && SUPABASE_ANON_KEY
+    && !SUPABASE_URL.startsWith('YOUR_') && !SUPABASE_ANON_KEY.startsWith('YOUR_');
+  if (configured && window.supabase && typeof window.supabase.createClient === 'function') {
+    supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }
+} catch (e) { supa = null; /* any failure → stay in local-only mode */ }
+
 /* ================= ICONS =================
    Inline SVG set — no emoji, no icon font, no extra requests. Everything is
    drawn with currentColor so it inherits the ember/accent palette, scales
@@ -743,6 +769,11 @@ const state = {
   activeMeal:'Breakfast',      /* which meal we're logging into */
   sheet:null,                  /* food-detail sheet: {food, qty} or null */
   foodView:'browse',           /* browse | recents | favorites */
+  /* ---- account sync (all transient, never persisted) ---- */
+  session:null,                /* null (guest) or { id, email } once signed in */
+  syncStatus:'local',          /* local | syncing | synced | error */
+  authBusy:false,              /* magic-link request in flight */
+  authMsg:'',                  /* sign-in form feedback text */
 };
 const ALL_FOODS = Object.entries(FOOD_DB).flatMap(([cat, items]) => items.map(f => ({...f, cat})));
 const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -755,12 +786,17 @@ const SAVE_KEY = 'bhf.state.v1';
 const DURABLE  = ['goal','profile','plan','done','meals','recents','favorites','customFoods'];
 const freshMeals = () => ({ Breakfast:[], Lunch:[], Dinner:[], Snack:[] });
 
-function saveState(){
-  try {
-    const slice = {};
-    for (const k of DURABLE) slice[k] = state[k];
-    localStorage.setItem(SAVE_KEY, JSON.stringify(slice));
-  } catch (e) { /* storage disabled or full — stay in-memory */ }
+function durableSlice(){ const s = {}; for (const k of DURABLE) s[k] = state[k]; return s; }
+function repairShapes(){
+  if (!state.meals || typeof state.meals !== 'object') state.meals = freshMeals();
+  for (const m of Object.keys(freshMeals())) if (!Array.isArray(state.meals[m])) state.meals[m] = [];
+  for (const k of ['done','recents','favorites','customFoods']) if (!Array.isArray(state[k])) state[k] = [];
+}
+
+/* ---- LOCAL layer: instant, offline-safe, unchanged behavior ---- */
+function saveLocal(){
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(durableSlice())); }
+  catch (e) { /* storage disabled or full — stay in-memory */ }
 }
 function loadState(){
   try {
@@ -769,20 +805,119 @@ function loadState(){
     const saved = JSON.parse(raw);
     if (!saved || typeof saved !== 'object') return;
     for (const k of DURABLE) if (saved[k] != null) state[k] = saved[k];
-    /* repair shapes so a partial/old blob can't crash a render */
-    if (!state.meals || typeof state.meals !== 'object') state.meals = freshMeals();
-    for (const m of Object.keys(freshMeals())) if (!Array.isArray(state.meals[m])) state.meals[m] = [];
-    for (const k of ['done','recents','favorites','customFoods']) if (!Array.isArray(state[k])) state[k] = [];
+    repairShapes();   /* a partial/old blob can't crash a render */
   } catch (e) { /* corrupt blob — fall back to whatever defaults are set */ }
 }
+
+/* ---- Save hook: local now, cloud debounced (only when signed in) ---- */
+let cloudSaveTimer = null;
+function saveState(){
+  saveLocal();
+  if (supa && state.session){
+    clearTimeout(cloudSaveTimer);
+    cloudSaveTimer = setTimeout(pushCloud, 900);   /* network calls, so debounce */
+  }
+}
+async function upsertCloud(){
+  const { error } = await supa.from('app_data')
+    .upsert({ user_id: state.session.id, data: durableSlice() }, { onConflict: 'user_id' });
+  return error || null;
+}
+async function pushCloud(){
+  if (!supa || !state.session) return;
+  state.syncStatus = 'syncing'; paintAccountBar();
+  let err = null;
+  try { err = await upsertCloud(); } catch (e) { err = e; }
+  state.syncStatus = err ? 'error' : 'synced'; paintAccountBar();
+}
+
+/* ---- CLOUD layer: pull the signed-in user's row and merge it in ---- */
+async function loadCloudState(){
+  if (!supa || !state.session) return;
+  state.syncStatus = 'syncing'; paintAccountBar();
+  try {
+    const { data, error } = await supa.from('app_data')
+      .select('data').eq('user_id', state.session.id).maybeSingle();
+    if (error) { state.syncStatus = 'error'; paintAccountBar(); return; }
+    const cloud = data && data.data;
+    const hasCloud = cloud && typeof cloud === 'object' && DURABLE.some(k => cloud[k] != null);
+    if (hasCloud){
+      /* cloud is the cross-device source of truth — it wins over local cache */
+      for (const k of DURABLE) if (cloud[k] != null) state[k] = cloud[k];
+      repairShapes();
+      saveLocal();                       /* mirror cloud down to the local cache */
+      state.syncStatus = 'synced';
+    } else {
+      /* empty/absent cloud row on first sign-in: keep local guest data and
+         upload it, so it becomes the baseline instead of being wiped out */
+      const err = await upsertCloud();
+      state.syncStatus = err ? 'error' : 'synced';
+    }
+  } catch (e) { state.syncStatus = 'error'; }
+  paintAccountBar();
+}
+
 function resetState(){
   state.goal = null; state.profile = null; state.plan = null;
   state.done = []; state.meals = freshMeals();
   state.recents = []; state.favorites = []; state.customFoods = [];
   state.draft = {}; state.sheet = null;
   state.foodCat = 'All'; state.foodQuery = ''; state.activeMeal = 'Breakfast'; state.foodView = 'browse';
+  /* note: session/syncStatus are left intact — "Clear my data" wipes data,
+     not your sign-in. */
 }
-function clearSavedData(){ try { localStorage.removeItem(SAVE_KEY); } catch (e) {} }
+/* clears the LOCAL cache and, if signed in, deletes the cloud row too */
+function clearSavedData(){
+  try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+  if (supa && state.session){
+    try { supa.from('app_data').delete().eq('user_id', state.session.id).then(()=>{}, ()=>{}); }
+    catch (e) {}
+  }
+}
+
+/* ================= AUTH (passwordless magic link) ================= */
+const escHtml = s => String(s == null ? '' : s).replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let pendingEmail = '';           /* keeps the typed email through the re-render */
+let cloudLoadedFor = null;       /* user id we've already pulled cloud data for */
+
+async function sendMagicLink(email){
+  if (!supa) return;
+  state.authBusy = true; state.authMsg = '';
+  try {
+    const { error } = await supa.auth.signInWithOtp({ email, options: { emailRedirectTo: location.href } });
+    state.authMsg = error ? ('Couldn’t send link: ' + error.message)
+                          : 'Check your email for a sign-in link.';
+  } catch (e) { state.authMsg = 'Couldn’t send link — try again.'; }
+  state.authBusy = false;
+}
+async function signOutAccount(){
+  if (!supa) return;
+  try { await supa.auth.signOut(); } catch (e) {}
+  state.session = null; state.syncStatus = 'local'; state.authMsg = ''; cloudLoadedFor = null;
+}
+async function applySession(s, onChange){
+  state.session = { id: s.user.id, email: s.user.email };
+  if (cloudLoadedFor !== s.user.id){         /* pull cloud once per session */
+    cloudLoadedFor = s.user.id;
+    await loadCloudState();
+  }
+  onChange();
+}
+function watchAuth(onChange){
+  if (!supa) return;
+  /* restore an existing session on load */
+  supa.auth.getSession().then(({ data }) => {
+    if (data && data.session && data.session.user) applySession(data.session, onChange);
+  }).catch(() => {});
+  /* catch a magic-link completing in this tab, and sign-outs */
+  supa.auth.onAuthStateChange((event, s) => {
+    if (s && s.user) applySession(s, onChange);
+    else if (event === 'SIGNED_OUT'){
+      state.session = null; state.syncStatus = 'local'; cloudLoadedFor = null; onChange();
+    }
+  });
+}
 
 /* ====== LIVING BACKGROUND · raytraced black hole with gravitational lensing ======
    Light rays are bent through a Schwarzschild-style geodesic approximation, so the
@@ -1225,6 +1360,18 @@ function bindActions(page){
         }
         return;
       }
+      /* ---- account sync ---- */
+      if (a.act === 'sendMagicLink'){
+        const inp = current.querySelector('#authEmail');
+        const email = ((inp && inp.value) || '').trim();
+        if (!email){ state.authMsg = 'Enter your email first.'; paintAccountBar(); return; }
+        pendingEmail = email;
+        const p = sendMagicLink(email);   /* sets authBusy synchronously, then awaits */
+        paintAccountBar();                /* show "Sending…" immediately */
+        p.then(paintAccountBar);          /* then show the result message */
+        return;
+      }
+      if (a.act === 'signOut'){ signOutAccount().then(paintAccountBar); return; }
       if (a.act === 'open')      ROUTES[a.route](a);
       /* ---- food logging ---- */
       if (a.act === 'openFood') {          /* open the detail sheet for a food */
@@ -1515,6 +1662,51 @@ const COACH = {
   'Cardio2':    { rpe:'6 / 10', rest:'—', tip:'Steady and honest. Finish feeling like you could do ten more minutes.' },
 };
 
+/* ================= ACCOUNT STATUS BAR ================= */
+const SYNC_UI = {
+  local:  ['var(--mut)',    'Local only'],
+  syncing:['var(--ember)',  'Syncing…'],
+  synced: ['#39d98a',       'Synced'],
+  error:  ['var(--danger)', 'Sync error'],
+};
+function syncDot(){
+  const [col, label] = SYNC_UI[state.syncStatus] || SYNC_UI.local;
+  return `<span style="display:inline-flex;align-items:center;gap:6px">
+    <span style="width:8px;height:8px;border-radius:50%;background:${col};box-shadow:0 0 7px ${col}"></span>
+    <span class="mut" style="font-size:12px">${label}</span></span>`;
+}
+/* inner HTML for #acctBar — repainted in place on auth/sync changes */
+function accountBarInner(){
+  if (!supa) return '';                       /* sync not configured — stay quiet */
+  if (state.session){
+    return `
+      <div class="acct-row">
+        <div style="min-width:0">
+          <div class="mut" style="font-size:10.5px;letter-spacing:.18em;text-transform:uppercase">Account</div>
+          <div style="font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(state.session.email)}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:16px;flex-shrink:0">
+          ${syncDot()}
+          <button class="linkbtn" data-act="signOut">Sign out</button>
+        </div>
+      </div>`;
+  }
+  return `
+    <div class="mut" style="font-size:12.5px;margin-bottom:10px;line-height:1.5">Guest mode — saved on this device only. Sign in to sync your plan across devices.</div>
+    <div class="acct-signin">
+      <input id="authEmail" class="inp" type="email" inputmode="email" autocomplete="email"
+             placeholder="you@email.com" value="${escHtml(pendingEmail)}" ${state.authBusy ? 'disabled' : ''}>
+      <button class="btn acct-btn" data-act="sendMagicLink" ${state.authBusy ? 'disabled' : ''}>${state.authBusy ? 'Sending…' : 'Sign in'}</button>
+    </div>
+    ${state.authMsg ? `<div style="font-size:12.5px;margin-top:9px;color:var(--ember)">${escHtml(state.authMsg)}</div>` : ''}`;
+}
+function paintAccountBar(){
+  const el = current && current.querySelector('#acctBar');
+  if (!el) return;
+  el.innerHTML = accountBarInner();
+  bindActions(el);                            /* rebind the fresh buttons */
+}
+
 /* ================= PAGES ================= */
 function pageMenu(){
   const pf = state.profile;
@@ -1531,7 +1723,8 @@ function pageMenu(){
     { t:"Activity Log",    d:"Everything you've burned so far", route:"log" },
   ];
   return `
-    <div style="min-height:62vh;display:flex;flex-direction:column;justify-content:center">
+    ${supa ? `<div id="acctBar" class="acct rv-l">${accountBarInner()}</div>` : ''}
+    <div style="min-height:${supa ? '56vh' : '62vh'};display:flex;flex-direction:column;justify-content:center">
       <div class="kicker rv">${pf ? 'Welcome back' : 'Fitness intelligence'}</div>
       <h1 class="rv">${pf ? `Back in orbit,<br>${first}.` : 'Train inside<br>your own orbit.'}</h1>
       <p class="lede rv">${pf
@@ -2316,6 +2509,11 @@ state.plan = null;
 loadState();                 /* restore the durable slice if a valid one exists */
 stack = [{ title:'Menu', build:pageMenu }];
 mountPage(stack[0], 0);
+
+/* Account sync is layered in AFTER the instant local boot — no loading screen.
+   Once the async session check resolves (or a magic link completes in this
+   tab), the current page silently re-renders with cloud data merged in. */
+watchAuth(() => refresh());
 
 /* ================= SERVICE WORKER =================
    Guarded behind an http(s) check so it's a silent no-op on file:// or in
