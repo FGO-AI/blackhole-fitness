@@ -985,6 +985,17 @@ function watchAuth(onChange){
    far side of the disk appears folded above and below the hole — like the real thing.
    axes: X = clicks (full 360° flip) · Y = slow ambient · Z = scroll only */
 let curScroll = 0, pullKick = 0;
+/* Photon-ring spin. Declared out here (like pullKick) so nav()/goBack() can
+   kick it even when THREE failed to load and the render block never ran.
+   RING_KICK / RING_DECAY are tuned together: with velocity decaying as
+   e^(-k t), total swept angle is kick/decay ≈ 7.7 rad ≈ 1.2 turns, settling
+   in ~1.2s. */
+const RING_KICK = 20, RING_DECAY = 2.6, RING_VEL_MAX = 60;
+let ringSpin = 0, ringSpinVel = 0;
+function kickRingSpin(dir){
+  ringSpinVel = Math.max(-RING_VEL_MAX,
+                Math.min(RING_VEL_MAX, ringSpinVel + dir * RING_KICK));
+}
 
 if (window.THREE) {
   const canvas = document.getElementById('bhCanvas');
@@ -1015,10 +1026,14 @@ if (window.THREE) {
     uPulse:{ value: 0 },
     uDist: { value: 12.5 },
     uMaxSteps: { value: 260 },
+    uRingSpin: { value: 0 },
+    uRingHot:  { value: 0 },
   };
 
   const frag = `
 uniform vec2 uRes; uniform float uTime; uniform float uRoll; uniform mat3 uRot; uniform float uPulse; uniform float uDist; uniform float uMaxSteps;
+uniform float uRingSpin;   /* accumulating photon-ring angle (radians) */
+uniform float uRingHot;    /* 0..1 spin energy — drives the traveling hot-spot */
 
 float hash(vec2 p){ p = fract(p*vec2(123.34,345.45)); p += dot(p,p+34.345); return fract(p.x*p.y); }
 float noise(vec2 p){
@@ -1189,8 +1204,21 @@ void main(){
     float graze = max(minR - 1.0, 0.);
     /* the thin bright ring — very sharp */
     float ring = exp(-graze*graze*140.);
-    float shimmer = .9 + .2*noise(vec2(sa*3.0 + uTime*.2, uTime*.5));
+    /* rotating the noise's angular argument makes the existing shimmer sweep
+       around the ring during a spin instead of just flickering in place */
+    float shimmer = .9 + .2*noise(vec2(sa*3.0 + uRingSpin + uTime*.2, uTime*.5));
     col += vec3(1.,.98,.94) * ring * (2.2 + .4*uPulse) * shimmer;
+    /* traveling hot-spot: a tight highlight racing around the circumference.
+       Scaled by uRingHot (spin energy) so it is bright mid-spin and gone at
+       rest — never a permanent bright dot parked on the circle.
+       The razor core is already ~0.96 white after the filmic curve below, so
+       brightening it alone is invisible; the readable part is the wider bloom,
+       which sits where the exposure curve still has headroom. */
+    if(uRingHot > .001){
+      float hot = pow(max(cos(sa - uRingSpin), 0.), 12.);
+      col += vec3(1.,.99,.97) * ring * hot * uRingHot * 2.0;
+      col += vec3(1.,.93,.80) * exp(-graze*2.6) * hot * uRingHot * 2.1;
+    }
     /* faint outer glow only (kept subtle so the ring reads as thin) */
     col += vec3(1.,.62,.30) * exp(-graze*2.4) * .28;
     col += vec3(1.,.5,.2)  * exp(-graze*.9) * .06;
@@ -1255,6 +1283,8 @@ void main(){
   }
   /* read-only diagnostic: current quality tier + live step budget + last sample */
   window.__bhPerf = () => ({ tier, steps: uniforms.uMaxSteps.value, scale: TIERS[tier].scale, avg: +lastAvg.toFixed(2) });
+  /* read-only diagnostic: live photon-ring uniforms */
+  window.__ringUniforms = () => ({ spin: uniforms.uRingSpin.value, hot: uniforms.uRingHot.value });
 
   const BASE_TILT = -0.19;             /* just above the plane, like the reference */
   const eul = new THREE.Euler(), m4 = new THREE.Matrix4();
@@ -1308,6 +1338,15 @@ void main(){
             0, 'YXZ');
     m4.makeRotationFromEuler(eul);
     uniforms.uRot.value.setFromMatrix4(m4);
+    /* PHOTON-RING SPIN: navigation kicks angular velocity, which decays with
+       the same spring shape as pullKick; the angle integrates from it. At rest
+       the velocity is zero, so uRingHot fades to 0 and the ring looks exactly
+       as it did before this existed — no idle rotation was added. */
+    ringSpinVel = damp(ringSpinVel, 0, RING_DECAY, dt);
+    ringSpin += ringSpinVel * dt;
+    uniforms.uRingSpin.value = ringSpin;
+    uniforms.uRingHot.value  = Math.min(Math.abs(ringSpinVel) / RING_KICK, 1);
+
     uniforms.uRoll.value = rollSmooth;
     uniforms.uTime.value = t * .001;
     uniforms.uPulse.value = 0.5 + 0.5 * Math.sin(t * 0.0007);     /* slow flare pulse */
@@ -1387,9 +1426,14 @@ function resetToMenu(){
   stack = [{ title:'Menu', build:pageMenu }];
   mountPage(stack[0], 0);
 }
-function nav(title, build){ stack.push({title, build}); mountPage(stack[stack.length-1], 1); }
+function nav(title, build){
+  kickRingSpin(1);                 /* forward: ring sweeps one way… */
+  stack.push({title, build});
+  mountPage(stack[stack.length-1], 1);
+}
 function goBack(){
   if (stack.length < 2) return;
+  kickRingSpin(-1);                /* …back: the other, so direction reads */
   stack.pop();
   mountPage(stack[stack.length-1], -1);
 }
