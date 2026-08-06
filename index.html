@@ -62,12 +62,22 @@ header{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:c
 /* ============ ICONS ============ */
 .linkbtn{background:none;border:none;color:var(--mut);font-family:inherit;font-size:12px;letter-spacing:.14em;text-transform:uppercase;cursor:pointer;padding:8px 10px;border-radius:8px;transition:color .2s}
 .linkbtn:hover{color:var(--danger)}
-/* account sync bar */
-.acct{background:var(--card);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:22px}
-.acct-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.acct-signin{display:flex;gap:10px}
-.acct-signin .inp{flex:1;min-width:0}
-.acct-signin .btn{width:auto;flex:0 0 auto;padding:12px 22px;white-space:nowrap}
+/* account chip on Menu — compact, right-aligned, never steals hero space */
+.chiprow{display:flex;justify-content:flex-end;margin-bottom:6px}
+.acct-chip{display:inline-flex;align-items:center;gap:8px;max-width:62vw;
+  background:var(--card);backdrop-filter:blur(8px);border:1px solid var(--border);
+  border-radius:99px;padding:7px 14px;cursor:pointer;font-size:12.5px;color:var(--mut);
+  transition:border-color .25s,color .25s}
+.acct-chip:hover{border-color:var(--ember-mid);color:var(--ink)}
+.acct-chip .who{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+/* account page */
+.acct-feat{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--border);font-size:14px}
+.acct-feat:last-child{border-bottom:none}
+.btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+.btn:disabled{opacity:.5;cursor:not-allowed;filter:none}
+.sent-mark{width:58px;height:58px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:var(--ember-dim);color:var(--ember);margin:0 auto 18px}
 .ico{display:inline-block;vertical-align:-.18em;flex-shrink:0}
 .ico-em{width:.82em;height:.82em;vertical-align:-.04em}   /* scales with its heading */
 .gico{display:flex;align-items:center;justify-content:center;width:30px;color:var(--ember);flex-shrink:0}
@@ -273,6 +283,7 @@ const ICONS = {
   star:     '<path d="m12 2.9 2.85 5.78 6.38.93-4.62 4.5 1.09 6.35L12 17.46l-5.7 3 1.09-6.35-4.62-4.5 6.38-.93Z"/>',
   ring:     '<circle cx="12" cy="12" r="8.6"/><circle cx="12" cy="12" r="3.4" fill="currentColor" stroke="none"/>',
   check:    '<circle cx="12" cy="12" r="8.6"/><path d="m8.2 12.3 2.6 2.6 5-5.6"/>',
+  mail:     '<rect x="2.6" y="4.8" width="18.8" height="14.4" rx="2.4"/><path d="m3.4 6.6 8.6 6 8.6-6"/>',
 };
 /* icon('flame', 26, {label:'Lose weight'}) -> <svg …>  */
 function icon(name, size = 20, o = {}){
@@ -777,6 +788,9 @@ const state = {
   syncStatus:'local',          /* local | syncing | synced | error */
   authBusy:false,              /* magic-link request in flight */
   authMsg:'',                  /* sign-in form feedback text */
+  authSentTo:null,             /* email a link was just sent to → Account state B */
+  lastSyncedAt:null,           /* app_data.updated_at, for "last synced" */
+  resendAt:0,                  /* epoch ms when "Resend link" unlocks */
 };
 const ALL_FOODS = Object.entries(FOOD_DB).flatMap(([cat, items]) => items.map(f => ({...f, cat})));
 const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -828,20 +842,22 @@ async function upsertCloud(){
 }
 async function pushCloud(){
   if (!supa || !state.session) return;
-  state.syncStatus = 'syncing'; paintAccountBar();
+  state.syncStatus = 'syncing'; syncChanged();
   let err = null;
   try { err = await upsertCloud(); } catch (e) { err = e; }
-  state.syncStatus = err ? 'error' : 'synced'; paintAccountBar();
+  if (!err) state.lastSyncedAt = new Date().toISOString();
+  state.syncStatus = err ? 'error' : 'synced'; syncChanged();
 }
 
 /* ---- CLOUD layer: pull the signed-in user's row and merge it in ---- */
 async function loadCloudState(){
   if (!supa || !state.session) return;
-  state.syncStatus = 'syncing'; paintAccountBar();
+  state.syncStatus = 'syncing'; syncChanged();
   try {
     const { data, error } = await supa.from('app_data')
-      .select('data').eq('user_id', state.session.id).maybeSingle();
-    if (error) { state.syncStatus = 'error'; paintAccountBar(); return; }
+      .select('data, updated_at').eq('user_id', state.session.id).maybeSingle();
+    if (error) { state.syncStatus = 'error'; syncChanged(); return; }
+    if (data && data.updated_at) state.lastSyncedAt = data.updated_at;
     const cloud = data && data.data;
     const hasCloud = cloud && typeof cloud === 'object' && DURABLE.some(k => cloud[k] != null);
     if (hasCloud){
@@ -854,10 +870,11 @@ async function loadCloudState(){
       /* empty/absent cloud row on first sign-in: keep local guest data and
          upload it, so it becomes the baseline instead of being wiped out */
       const err = await upsertCloud();
+      if (!err) state.lastSyncedAt = new Date().toISOString();
       state.syncStatus = err ? 'error' : 'synced';
     }
   } catch (e) { state.syncStatus = 'error'; }
-  paintAccountBar();
+  syncChanged();
 }
 
 function resetState(){
@@ -884,23 +901,64 @@ const escHtml = s => String(s == null ? '' : s).replace(/[&<>"']/g,
 let pendingEmail = '';           /* keeps the typed email through the re-render */
 let cloudLoadedFor = null;       /* user id we've already pulled cloud data for */
 
+const validEmail = e => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(e || '').trim());
+
+/* "last synced" in human terms */
+function relTime(ts){
+  if (!ts) return null;
+  const s = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+  if (!isFinite(s) || s < 0) return 'just now';
+  if (s < 60)    return 'just now';
+  if (s < 3600)  return Math.floor(s/60) + (Math.floor(s/60) === 1 ? ' minute ago' : ' minutes ago');
+  if (s < 86400) return Math.floor(s/3600) + (Math.floor(s/3600) === 1 ? ' hour ago' : ' hours ago');
+  return Math.floor(s/86400) + (Math.floor(s/86400) === 1 ? ' day ago' : ' days ago');
+}
+
+/* ---- resend cooldown: ticks the button in place, no full re-render ---- */
+const RESEND_SECS = 30;
+let resendTimer = null;
+const resendLeft = () => Math.max(0, Math.ceil((state.resendAt - Date.now()) / 1000));
+function startResendCooldown(){
+  state.resendAt = Date.now() + RESEND_SECS * 1000;
+  clearInterval(resendTimer);
+  resendTimer = setInterval(() => {
+    const left = resendLeft();
+    const btn = current && current.querySelector('#resendBtn');
+    if (left <= 0){
+      clearInterval(resendTimer); resendTimer = null;
+      if (btn){ btn.disabled = false; btn.textContent = 'Resend link'; }
+      return;
+    }
+    if (btn){ btn.disabled = true; btn.textContent = `Resend in ${left}s`; }
+  }, 1000);
+}
+
 async function sendMagicLink(email){
   if (!supa) return;
   state.authBusy = true; state.authMsg = '';
   try {
     const { error } = await supa.auth.signInWithOtp({ email, options: { emailRedirectTo: location.href } });
-    state.authMsg = error ? ('Couldn’t send link: ' + error.message)
-                          : 'Check your email for a sign-in link.';
-  } catch (e) { state.authMsg = 'Couldn’t send link — try again.'; }
+    if (error){
+      state.authMsg = 'Couldn’t send link: ' + error.message;
+    } else {
+      state.authMsg = '';
+      state.authSentTo = email;      /* → Account state B */
+      startResendCooldown();
+    }
+  } catch (e) { state.authMsg = 'Couldn’t send link — check your connection and try again.'; }
   state.authBusy = false;
 }
 async function signOutAccount(){
   if (!supa) return;
   try { await supa.auth.signOut(); } catch (e) {}
-  state.session = null; state.syncStatus = 'local'; state.authMsg = ''; cloudLoadedFor = null;
+  state.session = null; state.syncStatus = 'local'; state.authMsg = '';
+  state.authSentTo = null; state.lastSyncedAt = null; cloudLoadedFor = null;
 }
 async function applySession(s, onChange){
   state.session = { id: s.user.id, email: s.user.email };
+  /* the link worked — drop the "check your email" state and any stale error */
+  state.authSentTo = null; state.authMsg = ''; state.authBusy = false;
+  pendingEmail = '';
   if (cloudLoadedFor !== s.user.id){         /* pull cloud once per session */
     cloudLoadedFor = s.user.id;
     await loadCloudState();
@@ -1296,6 +1354,7 @@ function mountPage(entry, dir){
   page.querySelectorAll('.rv,.rv-l,.rv-r').forEach(el => io.observe(el));
   bindActions(page);
   bindFoodSearch(page);
+  bindAccountInput(page);
 
   const old = current;
   current = page;
@@ -1341,6 +1400,7 @@ function refresh(){
   current.querySelector('.wrap').innerHTML = entry.build();
   current.querySelectorAll('.rv,.rv-l,.rv-r').forEach(el => el.classList.add('visible'));
   bindActions(current);
+  bindAccountInput(current);      /* the rebuilt input needs rebinding */
 }
 
 /* ================= ACTIONS ================= */
@@ -1364,17 +1424,28 @@ function bindActions(page){
         return;
       }
       /* ---- account sync ---- */
-      if (a.act === 'sendMagicLink'){
+      if (a.act === 'sendMagicLink' || a.act === 'resendLink'){
         const inp = current.querySelector('#authEmail');
-        const email = ((inp && inp.value) || '').trim();
-        if (!email){ state.authMsg = 'Enter your email first.'; paintAccountBar(); return; }
+        const email = (a.act === 'resendLink' ? state.authSentTo
+                                              : ((inp && inp.value) || pendingEmail)).trim();
+        if (!validEmail(email)){
+          state.authMsg = email ? 'That doesn’t look like a valid email.' : 'Enter your email first.';
+          refresh(); return;
+        }
+        if (a.act === 'resendLink' && resendLeft() > 0) return;   /* cooldown guard */
         pendingEmail = email;
         const p = sendMagicLink(email);   /* sets authBusy synchronously, then awaits */
-        paintAccountBar();                /* show "Sending…" immediately */
-        p.then(paintAccountBar);          /* then show the result message */
+        refresh();                        /* show "Sending…" immediately */
+        p.then(refresh);                  /* then state B, or the inline error */
         return;
       }
-      if (a.act === 'signOut'){ signOutAccount().then(paintAccountBar); return; }
+      if (a.act === 'differentEmail'){
+        state.authSentTo = null; state.authMsg = ''; pendingEmail = '';
+        clearInterval(resendTimer); resendTimer = null; state.resendAt = 0;
+        refresh(); return;
+      }
+      if (a.act === 'continueGuest'){ goBack(); return; }
+      if (a.act === 'signOut'){ signOutAccount().then(() => resetToMenu()); return; }
       if (a.act === 'open')      ROUTES[a.route](a);
       /* ---- food logging ---- */
       if (a.act === 'openFood') {          /* open the detail sheet for a food */
@@ -1665,49 +1736,128 @@ const COACH = {
   'Cardio2':    { rpe:'6 / 10', rest:'—', tip:'Steady and honest. Finish feeling like you could do ten more minutes.' },
 };
 
-/* ================= ACCOUNT STATUS BAR ================= */
+/* ================= ACCOUNT ================= */
 const SYNC_UI = {
   local:  ['var(--mut)',    'Local only'],
   syncing:['var(--ember)',  'Syncing…'],
   synced: ['#39d98a',       'Synced'],
   error:  ['var(--danger)', 'Sync error'],
 };
-function syncDot(){
-  const [col, label] = SYNC_UI[state.syncStatus] || SYNC_UI.local;
-  return `<span style="display:inline-flex;align-items:center;gap:6px">
-    <span style="width:8px;height:8px;border-radius:50%;background:${col};box-shadow:0 0 7px ${col}"></span>
-    <span class="mut" style="font-size:12px">${label}</span></span>`;
+const syncColor = () => (SYNC_UI[state.syncStatus] || SYNC_UI.local)[0];
+const syncLabel = () => (SYNC_UI[state.syncStatus] || SYNC_UI.local)[1];
+
+/* Single re-render path. Only the Menu (chip) and Account page display sync
+   state, so a background sync can't clobber a form the user is typing into
+   on some other page. */
+function syncChanged(){
+  const top = stack && stack[stack.length - 1];
+  if (!current || !top) return;
+  if (top.title === 'Menu' || top.title === 'Account') refresh();
 }
-/* inner HTML for #acctBar — repainted in place on auth/sync changes */
-function accountBarInner(){
+
+/* compact Menu chip — opens the Account page in both states */
+function accountChip(){
   if (!supa) return '';                       /* sync not configured — stay quiet */
   if (state.session){
-    return `
-      <div class="acct-row">
-        <div style="min-width:0">
-          <div class="mut" style="font-size:10.5px;letter-spacing:.18em;text-transform:uppercase">Account</div>
-          <div style="font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(state.session.email)}</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:16px;flex-shrink:0">
-          ${syncDot()}
-          <button class="linkbtn" data-act="signOut">Sign out</button>
-        </div>
-      </div>`;
+    return `<div class="chiprow rv-r"><div class="acct-chip" data-act="open" data-route="account">
+      <span class="dot" style="background:${syncColor()};box-shadow:0 0 7px ${syncColor()}"></span>
+      <span class="who">${escHtml(state.session.email)}</span></div></div>`;
   }
+  return `<div class="chiprow rv-r"><div class="acct-chip" data-act="open" data-route="account">
+    <span class="dot" style="background:var(--mut)"></span>
+    <span class="who">Guest — Sign in</span></div></div>`;
+}
+
+function pageAccount(){
+  /* ---- State C: signed in ---- */
+  if (state.session){
+    const last = relTime(state.lastSyncedAt);
+    return `
+      <div class="kicker rv">Your account</div>
+      <h1 class="rv">You're synced.</h1>
+      <p class="lede rv">Your plan, food diary and workout history are saved to your account and will follow you to any device you sign into.</p>
+
+      <div class="card rv" style="margin-top:26px">
+        <div class="row">
+          <div style="min-width:0">
+            <div class="mut" style="font-size:10.5px;letter-spacing:.18em;text-transform:uppercase">Signed in as</div>
+            <div style="font-size:14.5px;font-weight:600;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(state.session.email)}</div>
+          </div>
+          <span style="display:inline-flex;align-items:center;gap:7px;flex-shrink:0">
+            <span class="dot" style="background:${syncColor()};box-shadow:0 0 7px ${syncColor()}"></span>
+            <span class="mut" style="font-size:12.5px">${syncLabel()}</span>
+          </span>
+        </div>
+        ${last ? `<div class="mut" style="font-size:12px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">Last synced ${last}</div>` : ''}
+      </div>
+
+      <div class="rv" style="margin-top:20px">
+        <button class="btn ghost" data-act="signOut">Sign out</button>
+      </div>
+      <p class="mut rv" style="text-align:center;font-size:11.5px;line-height:1.6;margin:26px 0 0">
+        Signing out leaves your data safely in your account.
+      </p>
+      <p class="rv" style="text-align:center;margin:14px 0 4px">
+        <button class="linkbtn" data-act="clearData">Clear my data</button>
+      </p>
+      <p class="mut rv" style="text-align:center;font-size:11.5px;line-height:1.6;margin:0 0 26px">
+        Removes it from this device and your account.
+      </p>`;
+  }
+
+  /* ---- State B: link sent, waiting ---- */
+  if (state.authSentTo){
+    const left = resendLeft();
+    return `
+      <div class="kicker rv">Almost there</div>
+      <h1 class="rv">Check your<br>email.</h1>
+      <div class="card rv" style="margin-top:26px;text-align:center;padding:26px 20px">
+        <div class="sent-mark">${icon('mail', 26, { label:'Email sent' })}</div>
+        <div style="font-size:14.5px;line-height:1.6">We sent a link to<br><b class="em">${escHtml(state.authSentTo)}</b></div>
+        <div class="mut" style="font-size:12.5px;margin-top:14px;line-height:1.6">It expires soon and only works once — request a new one if it's been a while.</div>
+        ${state.authMsg ? `<div style="font-size:12.5px;margin-top:14px;color:var(--danger)">${escHtml(state.authMsg)}</div>` : ''}
+      </div>
+      <div class="rv" style="margin-top:18px">
+        <button class="btn ghost" id="resendBtn" data-act="resendLink" ${left > 0 || state.authBusy ? 'disabled' : ''}>${
+          state.authBusy ? 'Sending…' : left > 0 ? `Resend in ${left}s` : 'Resend link'}</button>
+      </div>
+      <p class="rv" style="text-align:center;margin:20px 0 10px">
+        <button class="linkbtn" style="color:var(--mut)" data-act="differentEmail">Use a different email</button>
+      </p>
+      <p class="rv" style="text-align:center;margin:0 0 24px">
+        <button class="linkbtn" style="color:var(--mut)" data-act="continueGuest">Continue as guest</button>
+      </p>`;
+  }
+
+  /* ---- State A: guest, nothing sent yet ---- */
+  const ready = validEmail(pendingEmail);
   return `
-    <div class="mut" style="font-size:12.5px;margin-bottom:10px;line-height:1.5">Guest mode — saved on this device only. Sign in to sync your plan across devices.</div>
-    <div class="acct-signin">
+    <div class="kicker rv">Sync your progress</div>
+    <h1 class="rv">Sign in to<br>carry it with you.</h1>
+    <p class="lede rv">Your plan, food log and workout history follow you to any device you sign into. No password to remember — just your email.</p>
+
+    <div class="card rv" style="margin-top:26px">
+      <div class="acct-feat">${icon('check', 18, { cls:'em' })}<span>Your personalized plan</span></div>
+      <div class="acct-feat">${icon('check', 18, { cls:'em' })}<span>Your food diary and favorites</span></div>
+      <div class="acct-feat">${icon('check', 18, { cls:'em' })}<span>Your workout history</span></div>
+    </div>
+
+    <div class="rv" style="margin-top:22px">
+      <label class="fl" for="authEmail">Email address</label>
       <input id="authEmail" class="inp" type="email" inputmode="email" autocomplete="email"
              placeholder="you@email.com" value="${escHtml(pendingEmail)}" ${state.authBusy ? 'disabled' : ''}>
-      <button class="btn acct-btn" data-act="sendMagicLink" ${state.authBusy ? 'disabled' : ''}>${state.authBusy ? 'Sending…' : 'Sign in'}</button>
+      <!-- CAPTCHA widget mounts here when that hardening work lands -->
+      <div id="authCaptcha"></div>
+      <div id="authErr" class="mut" style="font-size:12.5px;min-height:17px;margin:8px 0 4px;color:${state.authMsg ? 'var(--danger)' : 'var(--mut)'}">${escHtml(state.authMsg)}</div>
+      <button class="btn" id="sendBtn" data-act="sendMagicLink" ${state.authBusy || !ready ? 'disabled' : ''}>${state.authBusy ? 'Sending…' : 'Send sign-in link'}</button>
     </div>
-    ${state.authMsg ? `<div style="font-size:12.5px;margin-top:9px;color:var(--ember)">${escHtml(state.authMsg)}</div>` : ''}`;
-}
-function paintAccountBar(){
-  const el = current && current.querySelector('#acctBar');
-  if (!el) return;
-  el.innerHTML = accountBarInner();
-  bindActions(el);                            /* rebind the fresh buttons */
+
+    <p class="rv" style="text-align:center;margin:20px 0 10px">
+      <button class="linkbtn" style="color:var(--mut)" data-act="continueGuest">Continue as guest</button>
+    </p>
+    <p class="mut rv" style="text-align:center;font-size:11.5px;line-height:1.6;margin:0 0 24px">
+      Not signing in is fine — everything still saves on this device.
+    </p>`;
 }
 
 /* ================= PAGES ================= */
@@ -1726,8 +1876,8 @@ function pageMenu(){
     { t:"Activity Log",    d:"Everything you've burned so far", route:"log" },
   ];
   return `
-    ${supa ? `<div id="acctBar" class="acct rv-l">${accountBarInner()}</div>` : ''}
-    <div style="min-height:${supa ? '56vh' : '62vh'};display:flex;flex-direction:column;justify-content:center">
+    ${accountChip()}
+    <div style="min-height:${supa ? '58vh' : '62vh'};display:flex;flex-direction:column;justify-content:center">
       <div class="kicker rv">${pf ? 'Welcome back' : 'Fitness intelligence'}</div>
       <h1 class="rv">${pf ? `Back in orbit,<br>${first}.` : 'Train inside<br>your own orbit.'}</h1>
       <p class="lede rv">${pf
@@ -2459,6 +2609,28 @@ function bindFoodSearch(page){
     input.addEventListener('input', e => { state.foodQuery = e.target.value; refreshFoodOnly(); });
   }
 }
+/* Mirror the typed email into pendingEmail so a background sync re-render
+   can't wipe it, and toggle the CTA live without re-rendering (which would
+   move the caret). */
+function bindAccountInput(page){
+  const input = page.querySelector('#authEmail');
+  if (input && !input._bound){
+    input._bound = true;
+    input.addEventListener('input', e => {
+      pendingEmail = e.target.value;
+      const btn = page.querySelector('#sendBtn');
+      if (btn) btn.disabled = state.authBusy || !validEmail(pendingEmail);
+      const err = page.querySelector('#authErr');
+      if (err && state.authMsg){ state.authMsg = ''; err.textContent = ''; }
+    });
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter'){
+        const btn = page.querySelector('#sendBtn');
+        if (btn && !btn.disabled) btn.click();
+      }
+    });
+  }
+}
 
 function pageLog(){
   const d = state.done;
@@ -2501,6 +2673,7 @@ const ROUTES = {
   libCat:   (a) => nav(CAT_LABEL[a.cat] || a.cat, () => pageLibCat(a)),
   log:      () => nav('Activity Log', pageLog),
   detail:   (a) => nav('Workout', () => pageDetail(a)),
+  account:  () => nav('Account', pageAccount),
 };
 
 addEventListener('keydown', e => { if (e.key === 'ArrowLeft' && e.target.tagName !== 'INPUT') goBack(); });
