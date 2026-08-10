@@ -26,12 +26,19 @@
 <meta name="apple-mobile-web-app-title" content="Blackhole">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CjxkZWZzPgo8cmFkaWFsR3JhZGllbnQgaWQ9ImQiIGN4PSI1MCUiIGN5PSI1MCUiIHI9IjUwJSI+CjxzdG9wIG9mZnNldD0iNTIlIiBzdG9wLWNvbG9yPSIjMDAwMDAwIi8+CjxzdG9wIG9mZnNldD0iNTglIiBzdG9wLWNvbG9yPSIjZmY5YTNkIi8+CjxzdG9wIG9mZnNldD0iNjYlIiBzdG9wLWNvbG9yPSIjZjA2NTExIi8+CjxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzBkMGYxNCIgc3RvcC1vcGFjaXR5PSIwIi8+CjwvcmFkaWFsR3JhZGllbnQ+CjwvZGVmcz4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiMwZDBmMTQiLz4KPGNpcmNsZSBjeD0iMzIiIGN5PSIzMiIgcj0iMjYiIGZpbGw9InVybCgjZCkiLz4KPGNpcmNsZSBjeD0iMzIiIGN5PSIzMiIgcj0iMTUiIGZpbGw9IiMwMDAwMDAiLz4KPC9zdmc+Cg==">
+<!-- open the TLS connections early; the font files and the first Supabase call
+     otherwise pay a full DNS + TCP + TLS round trip after their trigger -->
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://kfoifswvyjppywyeurrq.supabase.co">
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
 :root{
-  --bg:#0d0f14; --card:rgba(28,33,48,.72); --border:#252d3d;
+  /* card sits over the animated shader; .85 keeps secondary text legible
+     even where the near-white photon ring passes behind it */
+  --bg:#0d0f14; --card:rgba(28,33,48,.85); --border:#252d3d;
   --accent:#f06511; --accent-dim:rgba(240,101,17,.16);
   --ember:#ff9a3d; --ember-dim:rgba(255,122,24,.16); --ember-mid:rgba(255,140,40,.5);
   --ink:#e8ecf4; --mut:#8b97b3; --danger:#ff5252;
@@ -62,15 +69,21 @@ header{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:c
 /* ============ ICONS ============ */
 .linkbtn{background:none;border:none;color:var(--mut);font-family:inherit;font-size:12px;letter-spacing:.14em;text-transform:uppercase;cursor:pointer;padding:8px 10px;border-radius:8px;transition:color .2s}
 .linkbtn:hover{color:var(--danger)}
-/* account chip on Menu — compact, right-aligned, never steals hero space */
-.chiprow{display:flex;justify-content:flex-end;margin-bottom:6px}
+/* Keyboard focus. bindActions promotes every [data-act] to a real control,
+   so this has to read on divs and spans as well as buttons. */
+:focus-visible{outline:2px solid var(--ember);outline-offset:3px;border-radius:6px}
+/* account chip on Menu — compact, right-aligned, never steals hero space.
+   Named .acct-row, not .chiprow: the wizard defines its own .chiprow further
+   down and the second definition used to silently win here. */
+.acct-row{display:flex;justify-content:flex-end;margin-bottom:6px}
 .acct-chip{display:inline-flex;align-items:center;gap:8px;max-width:62vw;
   background:var(--card);backdrop-filter:blur(8px);border:1px solid var(--border);
   border-radius:99px;padding:7px 14px;cursor:pointer;font-size:12.5px;color:var(--mut);
   transition:border-color .25s,color .25s}
 .acct-chip:hover{border-color:var(--ember-mid);color:var(--ink)}
 .acct-chip .who{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+/* scoped: the 9px .dot below is the shared one (macro key, sync status) */
+.acct-chip .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
 /* account page */
 .acct-feat{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--border);font-size:14px}
 .acct-feat:last-child{border-bottom:none}
@@ -132,9 +145,12 @@ h1{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(1.9rem,6vw
 .btn:hover{filter:brightness(1.08)}
 .bar{height:8px;background:var(--border);border-radius:5px;overflow:hidden;margin:10px 0 6px}
 .bar>div{height:100%;background:linear-gradient(90deg,var(--ember),#ffc352);border-radius:5px;transition:width .7s cubic-bezier(.4,0,.2,1);box-shadow:0 0 10px rgba(255,154,61,.5)}
-.x{color:var(--danger);cursor:pointer;font-size:17px;padding:0 4px;line-height:1}
+/* destructive control — 44px hit area, glyph stays visually small */
+.x{color:var(--danger);cursor:pointer;font-size:17px;line-height:1;
+  min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;
+  margin:-11px -11px -11px 0}
 .stat b{display:block;font-family:'Unbounded',sans-serif;font-weight:500;font-size:clamp(1.3rem,4vw,1.9rem);color:var(--ember)}
-.stat span{font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--mut)}
+.stat span{font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--mut)}
 .exnum{width:28px;height:28px;border-radius:8px;background:var(--ember-dim);border:1px solid var(--ember-mid);display:flex;align-items:center;justify-content:center;color:var(--ember);font-size:13px;font-weight:700;flex-shrink:0}
 
 /* ============ ANALYSIS WIZARD ============ */
@@ -143,10 +159,9 @@ h1{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(1.9rem,6vw
 .fl{display:block;font-size:11px;letter-spacing:.22em;color:var(--mut);margin:0 0 6px;text-transform:uppercase;font-weight:600}
 .field{margin-bottom:14px}
 .chiprow{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 16px}
-.chip{padding:9px 18px;border:1px solid var(--border);border-radius:99px;cursor:pointer;font-size:13px;color:var(--mut);background:rgba(22,26,35,.6);transition:all .25s;user-select:none}
+.chip{padding:12px 18px;border:1px solid var(--border);border-radius:99px;cursor:pointer;font-size:13px;color:var(--mut);background:rgba(22,26,35,.6);transition:all .25s;user-select:none}
 .chip.on{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
 .err{color:var(--danger);font-size:13px;min-height:18px;margin:2px 0 8px}
-.macro{display:inline-block;background:rgba(22,26,35,.7);border:1px solid var(--border);border-radius:10px;padding:8px 14px;margin:4px 6px 0 0;font-size:13px}
 /* ---- premium plan components ---- */
 .msplit{display:flex;height:14px;border-radius:8px;overflow:hidden;margin:14px 0 10px;border:1px solid var(--border)}
 .msplit i{display:block;height:100%}
@@ -156,7 +171,7 @@ h1{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(1.9rem,6vw
 .dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
 .pgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:2px}
 .pcell{background:rgba(22,26,35,.6);border:1px solid var(--border);border-radius:14px;padding:15px 16px}
-.pcell .lab{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);margin-bottom:7px}
+.pcell .lab{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);margin-bottom:7px}
 .pcell .val{font-family:'Unbounded',sans-serif;font-weight:700;font-size:20px;line-height:1}
 .pcell .val small{font-size:12px;font-family:'Space Grotesk';color:var(--mut);font-weight:400}
 .pcell .sub{font-size:11.5px;color:var(--mut);margin-top:5px;line-height:1.4}
@@ -166,7 +181,6 @@ h1{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(1.9rem,6vw
 .mealrow .mname{font-weight:600;font-size:14px;min-width:82px}
 .mealrow .mcal{color:var(--ember);font-weight:700;font-size:14px}
 .mealrow .mmac{font-size:11px;color:var(--mut);margin-top:2px}
-.macro b{color:var(--ember)}
 .daybadge{font-family:'Unbounded',sans-serif;font-size:11px;color:var(--ember);letter-spacing:.15em;min-width:42px}
 .restday{opacity:.6}
 
@@ -177,7 +191,7 @@ h1{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(1.9rem,6vw
 .search .mag{position:absolute;left:15px;top:50%;transform:translateY(-50%);color:var(--mut);font-size:16px}
 .tabs{display:flex;gap:8px;overflow-x:auto;padding:4px 0 10px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
 .tabs::-webkit-scrollbar{display:none}
-.tab{white-space:nowrap;padding:8px 16px;border:1px solid var(--border);border-radius:99px;cursor:pointer;font-size:13px;color:var(--mut);background:rgba(22,26,35,.6);transition:all .25s;flex-shrink:0;user-select:none}
+.tab{white-space:nowrap;padding:12px 16px;border:1px solid var(--border);border-radius:99px;cursor:pointer;font-size:13px;color:var(--mut);background:rgba(22,26,35,.6);transition:all .25s;flex-shrink:0;user-select:none}
 .tab.on{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
 .fitem{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:11px 14px;margin-bottom:8px;cursor:pointer;transition:transform .25s,border-color .25s}
 .fitem:hover{transform:translateX(5px);border-color:var(--ember-mid)}
@@ -185,14 +199,15 @@ h1{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(1.9rem,6vw
 .empty{text-align:center;color:var(--mut);padding:30px 16px;font-size:14px}
 /* ---- MFP-style logging ---- */
 .seg{display:flex;background:rgba(22,26,35,.7);border:1px solid var(--border);border-radius:12px;padding:3px;margin:6px 0 14px;gap:3px}
-.seg button{flex:1;background:transparent;border:none;color:var(--mut);font-family:inherit;font-size:12.5px;font-weight:600;padding:9px 4px;border-radius:9px;cursor:pointer;transition:all .25s}
+.seg button{flex:1;background:transparent;border:none;color:var(--mut);font-family:inherit;font-size:12.5px;font-weight:600;padding:13px 4px;border-radius:9px;cursor:pointer;transition:all .25s}
 .seg button.on{background:var(--accent);color:#fff}
 .mealtabs{display:flex;gap:7px;overflow-x:auto;padding:2px 0 12px;scrollbar-width:none}
 .mealtabs::-webkit-scrollbar{display:none}
-.mealtab{white-space:nowrap;padding:9px 15px;border:1px solid var(--border);border-radius:99px;cursor:pointer;font-size:13px;color:var(--mut);background:rgba(22,26,35,.6);transition:all .25s;flex-shrink:0;display:flex;align-items:center;gap:7px;user-select:none}
+.mealtab{white-space:nowrap;padding:12px 15px;border:1px solid var(--border);border-radius:99px;cursor:pointer;font-size:13px;color:var(--mut);background:rgba(22,26,35,.6);transition:all .25s;flex-shrink:0;display:flex;align-items:center;gap:7px;user-select:none}
 .mealtab.on{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
-.mealtab .mt-k{font-size:10.5px;opacity:.75}
-.fav{cursor:pointer;display:flex;align-items:center;line-height:0;color:var(--mut);transition:transform .2s,color .2s;user-select:none;flex-shrink:0;padding:4px}
+.mealtab .mt-k{font-size:12px;opacity:.75}
+/* 44px hit area; the star itself stays 17px */
+.fav{cursor:pointer;display:inline-flex;align-items:center;justify-content:center;line-height:0;color:var(--mut);transition:transform .2s,color .2s;user-select:none;flex-shrink:0;min-width:44px;min-height:44px}
 .fav.on{color:var(--ember)}
 .fav:active{transform:scale(1.3)}
 /* food detail sheet */
@@ -201,13 +216,17 @@ h1{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(1.9rem,6vw
 .sheet{background:#141924;border:1px solid var(--border);border-bottom:none;border-radius:22px 22px 0 0;width:100%;max-width:780px;padding:12px 22px 30px;animation:shUp .38s cubic-bezier(.16,1,.3,1);max-height:88vh;overflow-y:auto}
 @keyframes shUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 .sheet-grab{width:40px;height:4px;border-radius:2px;background:#33405a;margin:6px auto 16px}
+.sheet-x{background:none;border:none;color:var(--mut);font-size:26px;line-height:1;cursor:pointer;
+  font-family:inherit;min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center;
+  border-radius:10px;transition:color .2s}
+.sheet-x:hover{color:var(--ink)}
 .qstep{display:flex;align-items:center;justify-content:center;gap:20px;margin:20px 0}
 .qstep button{width:52px;height:52px;border-radius:50%;border:1px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-size:28px;font-weight:300;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;transition:transform .2s}
 .qstep button:active{transform:scale(.9)}
 .qstep .qval{font-family:'Unbounded';font-weight:700;font-size:32px;min-width:120px;text-align:center}
 .qstep .qval small{display:block;font-family:'Space Grotesk';font-size:12px;color:var(--mut);font-weight:400;margin-top:3px}
 .qpre{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:20px}
-.qpre span{padding:7px 14px;border:1px solid var(--border);border-radius:99px;font-size:12.5px;color:var(--mut);cursor:pointer;transition:all .2s}
+.qpre span{padding:13px 16px;border:1px solid var(--border);border-radius:99px;font-size:12.5px;color:var(--mut);cursor:pointer;transition:all .2s}
 .qpre span.on{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
 .macmini{display:flex;justify-content:space-around;text-align:center;background:rgba(22,26,35,.6);border:1px solid var(--border);border-radius:14px;padding:16px 8px;margin-bottom:20px}
 .macmini b{display:block;font-family:'Unbounded';font-weight:700;font-size:20px}
@@ -238,7 +257,7 @@ h1{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(1.9rem,6vw
 <header>
   <button id="back">‹ Back</button>
   <div class="brand"><svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.6"/><circle cx="12" cy="12" r="3.4" fill="currentColor" stroke="none"/></svg> BLACKHOLE <b>FITNESS</b></div>
-  <div id="crumb">Menu</div>
+  <div id="crumb" aria-live="polite">Menu</div>
 </header>
 
 <main id="stage"></main>
@@ -767,13 +786,6 @@ const FOOD_DB = {
   ],
 };
 
-const FOODS = [
-  {name:"Oatmeal with berries",calories:310,p:10,c:55,f:6},{name:"Grilled chicken breast",calories:220,p:42,c:0,f:5},
-  {name:"Brown rice (1 cup)",calories:215,p:5,c:45,f:2},{name:"Greek yogurt",calories:130,p:17,c:9,f:0},
-  {name:"Banana",calories:105,p:1,c:27,f:0},{name:"Protein shake",calories:160,p:30,c:8,f:3},
-  {name:"Almonds (1oz)",calories:164,p:6,c:6,f:14},{name:"Salmon fillet",calories:280,p:39,c:0,f:13},
-];
-
 /* ================= STATE ================= */
 const state = {
   goal:null, plan:null, done:[],
@@ -808,6 +820,18 @@ function repairShapes(){
   if (!state.meals || typeof state.meals !== 'object') state.meals = freshMeals();
   for (const m of Object.keys(freshMeals())) if (!Array.isArray(state.meals[m])) state.meals[m] = [];
   for (const k of ['done','recents','favorites','customFoods']) if (!Array.isArray(state[k])) state[k] = [];
+  /* profile/plan/goal are read unguarded by pageMenu (pf.name.trim(),
+     goalData().icon), so a malformed blob from an old save or a synced row
+     would throw inside mountPage and leave a blank stage. All three have
+     working null paths — the guest Menu — so repair to null, not to a stub. */
+  const pf = state.profile;
+  if (!pf || typeof pf !== 'object' || typeof pf.name !== 'string' || !pf.name.trim()) state.profile = null;
+  if (!state.plan || typeof state.plan !== 'object' || typeof state.plan.kcal !== 'number') state.plan = null;
+  if (!GOALS.some(g => g.id === state.goal)) state.goal = null;
+  /* the Menu's "signed-in" branch needs all three together */
+  if (!state.profile || !state.plan || !state.goal){
+    state.profile = null; state.plan = null; state.goal = null;
+  }
 }
 
 /* ---- LOCAL layer: instant, offline-safe, unchanged behavior ---- */
@@ -828,6 +852,11 @@ function loadState(){
 
 /* ---- Save hook: local now, cloud debounced (only when signed in) ---- */
 let cloudSaveTimer = null;
+/* The exact payload the cloud row already holds. Compared before every push so
+   an unchanged blob never costs a round trip — on a long-lived account the
+   slice runs to tens of KB, and it used to be re-sent on every interaction. */
+let lastPushedJSON = null;
+
 function saveState(){
   saveLocal();
   if (supa && state.session){
@@ -836,12 +865,16 @@ function saveState(){
   }
 }
 async function upsertCloud(){
+  const slice = durableSlice();
+  const json = JSON.stringify(slice);
   const { error } = await supa.from('app_data')
-    .upsert({ user_id: state.session.id, data: durableSlice() }, { onConflict: 'user_id' });
+    .upsert({ user_id: state.session.id, data: slice }, { onConflict: 'user_id' });
+  if (!error) lastPushedJSON = json;
   return error || null;
 }
 async function pushCloud(){
   if (!supa || !state.session) return;
+  if (JSON.stringify(durableSlice()) === lastPushedJSON) return;   /* nothing changed */
   state.syncStatus = 'syncing'; syncChanged();
   let err = null;
   try { err = await upsertCloud(); } catch (e) { err = e; }
@@ -865,6 +898,7 @@ async function loadCloudState(){
       for (const k of DURABLE) if (cloud[k] != null) state[k] = cloud[k];
       repairShapes();
       saveLocal();                       /* mirror cloud down to the local cache */
+      lastPushedJSON = JSON.stringify(durableSlice());  /* in sync — don't re-upload it */
       state.syncStatus = 'synced';
     } else {
       /* empty/absent cloud row on first sign-in: keep local guest data and
@@ -889,6 +923,7 @@ function resetState(){
 /* clears the LOCAL cache and, if signed in, deletes the cloud row too */
 function clearSavedData(){
   try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+  lastPushedJSON = null;               /* row is going away — forget what it held */
   if (supa && state.session){
     try { supa.from('app_data').delete().eq('user_id', state.session.id).then(()=>{}, ()=>{}); }
     catch (e) {}
@@ -953,6 +988,7 @@ async function signOutAccount(){
   try { await supa.auth.signOut(); } catch (e) {}
   state.session = null; state.syncStatus = 'local'; state.authMsg = '';
   state.authSentTo = null; state.lastSyncedAt = null; cloudLoadedFor = null;
+  lastPushedJSON = null;               /* next sign-in may be a different account */
 }
 async function applySession(s, onChange){
   state.session = { id: s.user.id, email: s.user.email };
@@ -1271,18 +1307,36 @@ void main(){
   sizeRenderer();
   addEventListener('resize', sizeRenderer);
 
-  /* rolling render-cost sampler; steps the tier every ~2s (dead zone 10–26ms) */
-  let costAccum = 0, costFrames = 0, lastTierAt = performance.now(), lastAvg = 0;
-  function adaptQuality(now){
-    if (now - lastTierAt < 2000 || costFrames === 0) return;
-    const avg = costAccum / costFrames;
+  /* ===== FRAME-TIME SAMPLER =====
+     This used to time the renderer.render() call itself. WebGL draw calls are
+     asynchronous — render() queues commands and returns without waiting on the
+     GPU — so on a GPU-bound device (exactly the weak phone the tiers exist for)
+     it reported ~2ms while the frame really took 60ms. The controller read that
+     as "plenty of headroom" and upgraded the device into a worse stutter, then
+     upgraded again. Wall-clock frame delta is what the user actually feels, and
+     it's already computed each frame. */
+  const SAMPLE_MS = 1000, DOWN_MS = 22, UP_MS = 13;   /* ≈45fps floor, ≈75fps ceiling */
+  let frameAccum = 0, frameCount = 0, lastTierAt = performance.now(), lastAvg = 0;
+  let hasSteppedDown = false;
+  function adaptQuality(now, dtMs){
+    frameAccum += dtMs; frameCount++;
+    if (now - lastTierAt < SAMPLE_MS) return;
+    const avg = frameAccum / frameCount;
     lastAvg = avg;
-    costAccum = 0; costFrames = 0; lastTierAt = now;
-    if (avg > 26 && tier < TIERS.length - 1)      { tier++; sizeRenderer(); }
-    else if (avg < 10 && tier > 0)                { tier--; sizeRenderer(); }
+    frameAccum = 0; frameCount = 0; lastTierAt = now;
+    if (avg > DOWN_MS && tier < TIERS.length - 1){
+      /* the first correction skips a tier, so a weak device lands near its real
+         budget in one step instead of grinding down one tier per second */
+      tier = Math.min(tier + (hasSteppedDown ? 1 : 2), TIERS.length - 1);
+      hasSteppedDown = true;
+      sizeRenderer();
+    } else if (avg < UP_MS && tier > 0){
+      tier--; sizeRenderer();
+    }
   }
   /* read-only diagnostic: current quality tier + live step budget + last sample */
-  window.__bhPerf = () => ({ tier, steps: uniforms.uMaxSteps.value, scale: TIERS[tier].scale, avg: +lastAvg.toFixed(2) });
+  window.__bhPerf = () => ({ tier, steps: uniforms.uMaxSteps.value, scale: TIERS[tier].scale,
+                             avgFrameMs: +lastAvg.toFixed(2), fps: lastAvg ? +(1000/lastAvg).toFixed(1) : 0 });
   /* read-only diagnostic: live photon-ring uniforms */
   window.__ringUniforms = () => ({ spin: uniforms.uRingSpin.value, hot: uniforms.uRingHot.value });
 
@@ -1351,10 +1405,8 @@ void main(){
     uniforms.uTime.value = t * .001;
     uniforms.uPulse.value = 0.5 + 0.5 * Math.sin(t * 0.0007);     /* slow flare pulse */
 
-    const r0 = performance.now();
     renderer.render(scene, camera);
-    costAccum += performance.now() - r0; costFrames++;
-    adaptQuality(t);
+    adaptQuality(t, dt * 1000);
 
     if (!RM) requestAnimationFrame(frame);
   }
@@ -1384,7 +1436,18 @@ const io = new IntersectionObserver(
 let stack = [];
 let current = null;
 
-function mountPage(entry, dir){
+/* Pages are swapped by replacing DOM, so focus lands on <body> when the old
+   page is removed — no announcement for a screen reader, and a keyboard user
+   restarts at the top of the tab order after every navigation. Moving focus to
+   the incoming <h1> fixes both. Programmatic focus doesn't trigger
+   :focus-visible, so sighted mouse users see no ring. */
+function focusHeading(page){
+  const h = page.querySelector('h1');
+  if (!h) return;
+  h.setAttribute('tabindex', '-1');
+  h.focus({ preventScroll: true });
+}
+function mountPage(entry, dir, takeFocus){
   const page = document.createElement('div');
   page.className = 'page ' + (dir === 1 ? 'enter-r' : dir === -1 ? 'enter-l' : 'live');
   page.innerHTML = `<div class="wrap">${entry.build()}</div>`;
@@ -1404,13 +1467,14 @@ function mountPage(entry, dir){
     requestAnimationFrame(() => requestAnimationFrame(() => {
       page.classList.remove('enter-r','enter-l');
       page.classList.add('live');
+      focusHeading(page);
       if (old){
         old.classList.remove('live');
         old.classList.add(dir === 1 ? 'exit-l' : 'exit-r');
         setTimeout(() => { old.querySelectorAll('.rv,.rv-l,.rv-r').forEach(el => io.unobserve(el)); old.remove(); }, RM ? 0 : 900);
       }
     }));
-  }
+  } else if (takeFocus) focusHeading(page);   /* wipe/reset — but never on first boot */
   crumb.textContent = entry.title;
   backBtn.classList.toggle('show', stack.length > 1);
 }
@@ -1424,7 +1488,7 @@ function resetToMenu(){
   });
   current = null;
   stack = [{ title:'Menu', build:pageMenu }];
-  mountPage(stack[0], 0);
+  mountPage(stack[0], 0, true);   /* the button that triggered this is gone — take focus */
 }
 function nav(title, build){
   kickRingSpin(1);                 /* forward: ring sweeps one way… */
@@ -1444,6 +1508,7 @@ function refresh(){
   current.querySelector('.wrap').innerHTML = entry.build();
   current.querySelectorAll('.rv,.rv-l,.rv-r').forEach(el => el.classList.add('visible'));
   bindActions(current);
+  bindFoodSearch(current);        /* keep in step with mountPage — all three rebind */
   bindAccountInput(current);      /* the rebuilt input needs rebinding */
 }
 
@@ -1455,9 +1520,9 @@ function readAbout(page){
     if (el) d[k === 'in' ? 'inch' : k] = el.value;
   });
 }
-function bindActions(page){
-  page.querySelectorAll('[data-act]').forEach(el => {
-    el.addEventListener('click', () => {
+/* One dispatcher for all 28 actions, factored out of the click binding so the
+   keyboard path runs exactly the same code. */
+function runAction(el, page){
       const a = el.dataset;
       /* every interaction tugs you closer to the hole */
       pullKick = Math.min(pullKick + 0.3, 1);
@@ -1510,16 +1575,19 @@ function bindActions(page){
           state.meals[state.activeMeal].push(entry);
           pushRecent(state.sheet.food);
           state.sheet = null;
-          refreshFoodOnly();
+          saveState(); refreshFoodOnly();
         }
       }
       if (a.act === 'rmFood')   {           /* remove from a meal */
-        state.meals[a.meal].splice(+a.i,1); refreshFoodOnly();
+        state.meals[a.meal].splice(+a.i,1); saveState(); refreshFoodOnly();
       }
       if (a.act === 'toggleFav'){
-        const f = findFood(decodeURIComponent(a.fname)); toggleFav(f); refreshFoodOnly();
+        const f = findFood(decodeURIComponent(a.fname)); toggleFav(f); saveState(); refreshFoodOnly();
       }
-      if (a.act === 'setFoodCat'){ state.foodCat = a.cat; state.foodQuery=''; refreshFoodOnly(); }
+      /* the tab writes encodeURIComponent(cat), so this must decode — without
+         it, the four categories containing spaces or "&" set an unusable key
+         and every later render of the browse view threw. */
+      if (a.act === 'setFoodCat'){ state.foodCat = decodeURIComponent(a.cat); state.foodQuery=''; refreshFoodOnly(); }
       if (a.act === 'setMeal')  { state.activeMeal = a.meal; refreshFoodOnly(); }
       if (a.act === 'setFoodView'){ state.foodView = a.view; state.foodQuery=''; refreshFoodOnly(); }
       if (a.act === 'saveCustom'){ saveCustomFromForm(); }
@@ -1533,6 +1601,7 @@ function bindActions(page){
         }
         if (w) {
           state.done.push(w);
+          saveState();
           el.textContent = '✓ Logged'; el.style.background = 'var(--ember)';
           setTimeout(goBack, 650);
         }
@@ -1556,12 +1625,33 @@ function bindActions(page){
         state.profile = { ...state.draft };
         state.goal = state.profile.goal;
         state.plan = computePlan();
+        saveState();                  /* first point in the wizard that writes durable state */
         nav('Your Plan', pagePlanFull);
       }
-      if (a.act === 'retake')   ROUTES.goals();
+      /* drop the wizard pages this was launched from, so Back doesn't walk
+         the user through a chain of stale steps rendering the new draft */
+      if (a.act === 'retake')   { stack = stack.slice(0, 1); ROUTES.goals(); }
+}
 
-      /* durable slice persisted after every interaction */
-      saveState();
+/* Most [data-act] carriers are <div>/<span>, which meant the whole Goal
+   Analysis wizard, the menu, the food browser and the favourite star were
+   unreachable without a mouse. Promoting them here — once, centrally — fixes
+   all 28 actions instead of touching every call site.
+   data-plain opts out: backdrops, and duplicate hit areas that would only add
+   a redundant second tab stop for the same action. */
+function bindActions(page){
+  page.querySelectorAll('[data-act]').forEach(el => {
+    if (el._actBound) return;          /* idempotent — bindActions re-runs on refresh */
+    el._actBound = true;
+    el.addEventListener('click', () => runAction(el, page));
+    if (el.tagName === 'BUTTON' || el.hasAttribute('data-plain')) return;
+    el.setAttribute('tabindex', '0');
+    el.setAttribute('role', 'button');
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' '){
+        e.preventDefault();            /* stop Space from scrolling the page */
+        runAction(el, page);
+      }
     });
   });
 }
@@ -1575,11 +1665,27 @@ const eKcal = e => Math.round(e.food.calories * e.qty);
 const eP    = e => Math.round(e.food.p * e.qty);
 const eC    = e => Math.round(e.food.c * e.qty);
 const eF    = e => Math.round(e.food.f * e.qty);
-const totalKcal = () => allLogged().reduce((s,e)=>s+eKcal(e),0);
-const totalP    = () => allLogged().reduce((s,e)=>s+eP(e),0);
-const totalC    = () => allLogged().reduce((s,e)=>s+eC(e),0);
-const totalF    = () => allLogged().reduce((s,e)=>s+eF(e),0);
+/* one flatten, one pass — this used to be four separate flattens of every
+   logged entry, recomputed on every keystroke in the food search */
+function totals(){
+  let kcal = 0, p = 0, c = 0, f = 0;
+  for (const e of allLogged()){ kcal += eKcal(e); p += eP(e); c += eC(e); f += eF(e); }
+  return { kcal, p, c, f };
+}
 const mealKcal  = m => state.meals[m].reduce((s,e)=>s+eKcal(e),0);
+
+/* ALL_FOODS is constant, so the browse pool only changes when a custom food is
+   added or a saved blob is loaded — and every one of those paths assigns a new
+   array to state.customFoods. Keying the cache on that reference means the
+   162-entry concat stops being rebuilt on every render. */
+let _poolCache = null, _poolFrom = null;
+function foodPool(){
+  if (_poolFrom !== state.customFoods){
+    _poolFrom = state.customFoods;
+    _poolCache = [...ALL_FOODS, ...state.customFoods];
+  }
+  return _poolCache;
+}
 
 function validateAbout(){
   const d = state.draft;
@@ -1716,7 +1822,6 @@ function computePlan(){
 
   /* energy balance & timeline projection */
   const dailyDelta = kcal - tdee;                 /* +surplus / −deficit */
-  const weeklyDelta = dailyDelta * 7 + weeklyBurn * (d.goal==='lose'? -1 : 0)*0; /* diet-driven */
   /* ~7700 kcal per kg of body mass */
   const weeklyKg = (dailyDelta * 7) / 7700;
   const absWeeklyKg = Math.abs(weeklyKg);
@@ -1777,7 +1882,6 @@ const COACH = {
   'Balanced':   { rpe:'7 / 10', rest:'60–90s', tip:'Move with intent on every rep — this session keeps everything tuned.' },
   'Recovery':   { rpe:'2–3 / 10', rest:'—', tip:'Breathe through the nose, lengthen the exhale. Today builds tomorrow.' },
   'Mobility':   { rpe:'3–4 / 10', rest:'—', tip:'Slow ranges, no bouncing. The positions you own are the injuries you skip.' },
-  'Cardio2':    { rpe:'6 / 10', rest:'—', tip:'Steady and honest. Finish feeling like you could do ten more minutes.' },
 };
 
 /* ================= ACCOUNT ================= */
@@ -1803,11 +1907,11 @@ function syncChanged(){
 function accountChip(){
   if (!supa) return '';                       /* sync not configured — stay quiet */
   if (state.session){
-    return `<div class="chiprow rv-r"><div class="acct-chip" data-act="open" data-route="account">
+    return `<div class="acct-row rv-r"><div class="acct-chip" data-act="open" data-route="account">
       <span class="dot" style="background:${syncColor()};box-shadow:0 0 7px ${syncColor()}"></span>
       <span class="who">${escHtml(state.session.email)}</span></div></div>`;
   }
-  return `<div class="chiprow rv-r"><div class="acct-chip" data-act="open" data-route="account">
+  return `<div class="acct-row rv-r"><div class="acct-chip" data-act="open" data-route="account">
     <span class="dot" style="background:var(--mut)"></span>
     <span class="who">Guest — Sign in</span></div></div>`;
 }
@@ -2450,6 +2554,7 @@ function saveCustomFromForm(){
   state.customFoods = [food, ...state.customFoods.filter(x=>x.name!==name)];
   state.foodView = 'browse'; state.foodQuery = '';
   state.sheet = { food, qty:1 };   /* jump straight to logging it */
+  saveState();
   refreshFoodOnly();
 }
 
@@ -2457,7 +2562,8 @@ const MEAL_ICON = { Breakfast:'sun', Lunch:'halfsun', Dinner:'moon', Snack:'spar
 
 /* the dynamic part — re-rendered on every keystroke / add / remove / sheet change */
 function foodZone(){
-  const total = totalKcal(), goal = kcalGoal(), left = goal - total, pct = Math.min(total/goal*100,100);
+  const t = totals();
+  const total = t.kcal, goal = kcalGoal(), left = goal - total, pct = Math.min(total/goal*100,100);
   const tP = state.plan ? state.plan.protein : 150;
   const tC = state.plan ? state.plan.carbs   : 250;
   const tF = state.plan ? state.plan.fat     : 70;
@@ -2474,9 +2580,9 @@ function foodZone(){
         <span style="font-weight:700;font-size:13px;color:${left<0?'var(--danger)':'var(--accent)'}">${left<0 ? `+${-left} over` : `${left} left`}</span>
       </div>
       <div class="bar"><div style="width:${pct}%"></div></div>
-      ${macroRow('PROTEIN', totalP(), tP, '#f06511')}
-      ${macroRow('CARBS',   totalC(), tC, '#ffb060')}
-      ${macroRow('FAT',     totalF(), tF, '#7a8bd6')}
+      ${macroRow('PROTEIN', t.p, tP, '#f06511')}
+      ${macroRow('CARBS',   t.c, tC, '#ffb060')}
+      ${macroRow('FAT',     t.f, tF, '#7a8bd6')}
     </div>`;
 
   /* ---- meal sections (the diary) ---- */
@@ -2510,19 +2616,20 @@ function foodZone(){
   /* ---- add-food browser ---- */
   const q = state.foodQuery.trim().toLowerCase();
   const cats = ['All', ...Object.keys(FOOD_DB), ...(state.customFoods.length?['Custom']:[])];
-  const pool = [...ALL_FOODS, ...state.customFoods];
+  const pool = foodPool();
   let results;
   if (state.foodView === 'recents')   results = state.recents;
   else if (state.foodView === 'favorites') results = state.favorites;
   else if (q)                         results = pool.filter(f => f.name.toLowerCase().includes(q));
   else if (state.foodCat === 'Custom')results = state.customFoods;
   else if (state.foodCat === 'All')   results = pool;
-  else                                results = FOOD_DB[state.foodCat].map(f => ({...f, cat:state.foodCat}));
+  /* || [] so an unknown category can never again take out the whole view */
+  else                                results = (FOOD_DB[state.foodCat] || []).map(f => ({...f, cat:state.foodCat}));
   const shown = (results||[]).slice(0, 60);
 
   const foodRow = f => `
     <div class="fitem">
-      <span class="add" data-act="openFood" data-fname="${encodeURIComponent(f.name)}">+</span>
+      <span class="add" data-act="openFood" data-fname="${encodeURIComponent(f.name)}" data-plain>+</span>
       <div style="flex:1;min-width:0" data-act="openFood" data-fname="${encodeURIComponent(f.name)}">
         <div style="font-weight:600;font-size:14px">${f.name}</div>
         <div class="mut" style="font-size:11.5px;margin-top:2px">${f.srv} · ${f.calories} kcal · P ${f.p} · C ${f.c} · F ${f.f}${(q||state.foodView!=='browse')&&f.cat?` · ${f.cat}`:''}</div>
@@ -2589,15 +2696,19 @@ function foodZone(){
     const f = state.sheet.food, qty = state.sheet.qty;
     const presets = [0.5, 1, 1.5, 2, 3];
     return `
-    <div class="sheet-bd" data-act="closeSheet">
-      <div class="sheet" onclick="event.stopPropagation()">
+    <div class="sheet-bd" data-act="closeSheet" data-plain>
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="Log ${f.name}"
+           tabindex="-1" onclick="event.stopPropagation()">
         <div class="sheet-grab"></div>
         <div class="row">
           <div style="min-width:0">
             <div style="font-family:'Unbounded';font-weight:700;font-size:19px;line-height:1.2">${f.name}</div>
             <div class="mut" style="font-size:12.5px;margin-top:3px">${f.srv} · ${f.cat||''}</div>
           </div>
-          <span class="fav ${isFav(f)?'on':''}" data-act="toggleFav" data-fname="${encodeURIComponent(f.name)}">${starIcon(isFav(f), 22)}</span>
+          <span style="display:flex;align-items:center;flex-shrink:0">
+            <span class="fav ${isFav(f)?'on':''}" data-act="toggleFav" data-fname="${encodeURIComponent(f.name)}">${starIcon(isFav(f), 22)}</span>
+            <button class="sheet-x" data-act="closeSheet" aria-label="Close">&times;</button>
+          </span>
         </div>
 
         <div class="qstep">
@@ -2631,6 +2742,7 @@ function fmtQty(q){
 }
 
 /* re-render only the food zone so the search box keeps focus & scroll holds */
+let sheetWasOpen = false;
 function refreshFoodOnly(){
   const zone = current.querySelector('#foodzone');
   if (!zone){ refresh(); return; }
@@ -2644,13 +2756,26 @@ function refreshFoodOnly(){
     const ni = current.querySelector('#foodSearch');
     if (ni){ ni.focus(); if (caret!=null) ni.setSelectionRange(caret, caret); }
   }
+  /* focus the dialog on the render it first appears — not on every qty tap,
+     which would yank focus back off the +/- buttons */
+  const dlg = current.querySelector('.sheet');
+  if (dlg && !sheetWasOpen) dlg.focus();
+  sheetWasOpen = !!state.sheet;
 }
 
+/* The query updates immediately (the state must never lag what's on screen),
+   but the re-render — which rebuilds the summary, diary and up to 60 rows — is
+   debounced so a fast typist gets one rebuild instead of one per character. */
+let searchDebounce = null;
 function bindFoodSearch(page){
   const input = page.querySelector('#foodSearch');
   if (input && !input._bound){
     input._bound = true;
-    input.addEventListener('input', e => { state.foodQuery = e.target.value; refreshFoodOnly(); });
+    input.addEventListener('input', e => {
+      state.foodQuery = e.target.value;
+      clearTimeout(searchDebounce);
+      searchDebounce = setTimeout(refreshFoodOnly, 120);
+    });
   }
 }
 /* Mirror the typed email into pendingEmail so a background sync re-render
@@ -2720,7 +2845,11 @@ const ROUTES = {
   account:  () => nav('Account', pageAccount),
 };
 
-addEventListener('keydown', e => { if (e.key === 'ArrowLeft' && e.target.tagName !== 'INPUT') goBack(); });
+addEventListener('keydown', e => {
+  /* the food sheet is modal — Escape closes it, and Back must not fire past it */
+  if (e.key === 'Escape' && state.sheet){ state.sheet = null; refreshFoodOnly(); return; }
+  if (e.key === 'ArrowLeft' && !state.sheet && e.target.tagName !== 'INPUT') goBack();
+});
 
 /* boot */
 state.draft = {};
