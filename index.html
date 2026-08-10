@@ -232,6 +232,50 @@ h1{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(1.9rem,6vw
 .macmini b{display:block;font-family:'Unbounded';font-weight:700;font-size:20px}
 .macmini span{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);margin-top:3px;display:block}
 
+/* ============ EXERCISE LINES · swap / sets & reps / demo ============ */
+.exline{padding:13px 16px;margin-bottom:8px}
+.exline.ov{border-color:var(--ember-mid)}
+.exhead{display:flex;align-items:flex-start;gap:14px}
+.exname{font-size:14.5px;font-weight:600;line-height:1.35}
+.exmeta{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;margin-top:6px}
+/* the sets×reps token is the tap target for the volume editor */
+.exreps{display:inline-flex;align-items:center;gap:6px;background:var(--ember-dim);
+  border:1px solid var(--ember-mid);color:var(--ember);border-radius:8px;
+  padding:5px 11px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;
+  transition:background .2s,border-color .2s}
+.exreps:hover{background:rgba(255,140,40,.26)}
+.exreps::after{content:'✎';font-size:11px;opacity:.75;font-weight:400}
+.demo{display:inline-flex;align-items:center;gap:5px;color:var(--mut);font-size:12px;
+  text-decoration:none;border-bottom:1px solid transparent;transition:color .2s,border-color .2s}
+.demo:hover{color:var(--ember);border-bottom-color:var(--ember-mid)}
+.exctl{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px;padding-left:42px}
+.exbtn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);
+  background:rgba(22,26,35,.6);color:var(--mut);border-radius:99px;padding:9px 15px;
+  font-size:12.5px;cursor:pointer;user-select:none;min-height:40px;transition:all .22s}
+.exbtn:hover{border-color:var(--ember-mid);color:var(--ember)}
+.exbtn.warn:hover{border-color:var(--danger);color:var(--danger)}
+.ovnote{font-size:11.5px;color:var(--mut);margin-top:10px;padding-left:42px;line-height:1.5}
+.ovnote b{color:var(--ink);font-weight:600}
+.gloss{display:flex;gap:12px;padding:9px 0;border-bottom:1px solid var(--border);font-size:13px;line-height:1.55}
+.gloss:last-child{border-bottom:none}
+.gloss b{color:var(--ember);flex-shrink:0;min-width:74px;font-size:12.5px;letter-spacing:.02em}
+.gloss span{color:var(--mut)}
+@media(max-width:480px){
+  .exctl,.ovnote{padding-left:0}
+  .gloss{flex-direction:column;gap:3px}
+  .gloss b{min-width:0}
+}
+
+/* ============ WEEKDAY PICKER ============ */
+.daygrid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin:6px 0 4px}
+.daychip{display:flex;align-items:center;justify-content:center;min-height:52px;
+  border:1px solid var(--border);border-radius:12px;background:rgba(22,26,35,.6);
+  color:var(--mut);font-size:12.5px;font-weight:600;cursor:pointer;user-select:none;
+  transition:all .22s}
+.daychip:hover{border-color:var(--ember-mid)}
+.daychip.on{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+@media(max-width:420px){.daygrid{gap:4px}.daychip{font-size:11.5px;min-height:46px}}
+
 /* ============ SCROLL REVEALS (replay up & down) ============ */
 .rv,.rv-l,.rv-r{opacity:0;transition:opacity .7s ease,transform .8s cubic-bezier(.16,1,.3,1);will-change:transform,opacity}
 .rv{transform:translateY(28px)}
@@ -303,6 +347,9 @@ const ICONS = {
   ring:     '<circle cx="12" cy="12" r="8.6"/><circle cx="12" cy="12" r="3.4" fill="currentColor" stroke="none"/>',
   check:    '<circle cx="12" cy="12" r="8.6"/><path d="m8.2 12.3 2.6 2.6 5-5.6"/>',
   mail:     '<rect x="2.6" y="4.8" width="18.8" height="14.4" rx="2.4"/><path d="m3.4 6.6 8.6 6 8.6-6"/>',
+  play:     '<circle cx="12" cy="12" r="8.6"/><path d="M10.2 8.7v6.6l5.4-3.3Z" fill="currentColor" stroke="none"/>',
+  swap:     '<path d="M4 8h13m-3.4-3.4L17 8l-3.4 3.4M20 16H7m3.4-3.4L7 16l3.4 3.4"/>',
+  reset:    '<path d="M3.6 12a8.4 8.4 0 1 1 2.6 6.1"/><path d="M3.2 6.6v5.2h5.2"/>',
 };
 /* icon('flame', 26, {label:'Lose weight'}) -> <svg …>  */
 function icon(name, size = 20, o = {}){
@@ -348,7 +395,7 @@ const WORKOUTS_SPECIALIZED = {
   },
   gain:{
     upperbody:[
-      {name:"Upper Body Power",duration:50,burn:280,tag:"Strength",sets:["Bench Press 4x8","Barbell Row 4x8","Overhead Press 3x10","Pull-ups 3xMax"]},
+      {name:"Upper Body Power",duration:50,burn:280,tag:"Strength",sets:["Bench Press 4x8","Barbell Row 4x8","Overhead Press 3x10","Pull-ups 3x Failure"]},
       {name:"Chest Specialist",duration:48,burn:260,tag:"Hypertrophy",sets:["Barbell Bench 4x6","Incline Dumbbell Press 3x8","Cable Flyes 3x12","Machine Press 3x15"]},
       {name:"Back & Biceps",duration:50,burn:245,tag:"Hypertrophy",sets:["Pendlay Row 4x6","Wide Lat Pulldown 3x8","Underhand Rows 3x10","Barbell Curls 3x8","Preacher Curls 3x12"]},
       {name:"Shoulders & Traps",duration:42,burn:220,tag:"Hypertrophy",sets:["Overhead Press 4x6","Lateral Raises 3x12","Reverse Flyes 3x12","Shrugs 3x15","Machine Shoulder Press 3x10"]},
@@ -791,7 +838,14 @@ const state = {
   goal:null, plan:null, done:[],
   meals:{ Breakfast:[], Lunch:[], Dinner:[], Snack:[] },  /* logged food per meal */
   recents:[], favorites:[], customFoods:[],
-  foodCat:'All', foodQuery:'',
+  /* Per-workout exercise customization, durable.
+     { [workoutName]: { [slotIndex]: { exercise, sets, reps } } }
+     One mechanism covers both cases from the UI — a slot can have its
+     exercise swapped, its sets/reps edited, or both. */
+  workoutOverrides:{},
+  exSheet:null,                /* exercise swap / sets-reps sheet, transient */
+  daysEditing:false,           /* weekday picker opened from the plan, not the wizard */
+  foodCat:'All', foodQuery:'', customDraftName:'',
   activeMeal:'Breakfast',      /* which meal we're logging into */
   sheet:null,                  /* food-detail sheet: {food, qty} or null */
   foodView:'browse',           /* browse | recents | favorites */
@@ -812,7 +866,7 @@ const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
    text, active tab). Save runs after every interaction; load merges on boot
    and can never throw, so corrupt or missing storage just yields fresh state. */
 const SAVE_KEY = 'bhf.state.v1';
-const DURABLE  = ['goal','profile','plan','done','meals','recents','favorites','customFoods'];
+const DURABLE  = ['goal','profile','plan','done','meals','recents','favorites','customFoods','workoutOverrides'];
 const freshMeals = () => ({ Breakfast:[], Lunch:[], Dinner:[], Snack:[] });
 
 function durableSlice(){ const s = {}; for (const k of DURABLE) s[k] = state[k]; return s; }
@@ -820,6 +874,9 @@ function repairShapes(){
   if (!state.meals || typeof state.meals !== 'object') state.meals = freshMeals();
   for (const m of Object.keys(freshMeals())) if (!Array.isArray(state.meals[m])) state.meals[m] = [];
   for (const k of ['done','recents','favorites','customFoods']) if (!Array.isArray(state[k])) state[k] = [];
+  /* map-of-maps, not an array — an older blob won't have it at all */
+  if (!state.workoutOverrides || typeof state.workoutOverrides !== 'object'
+      || Array.isArray(state.workoutOverrides)) state.workoutOverrides = {};
   /* profile/plan/goal are read unguarded by pageMenu (pf.name.trim(),
      goalData().icon), so a malformed blob from an old save or a synced row
      would throw inside mountPage and leave a blank stage. All three have
@@ -915,7 +972,8 @@ function resetState(){
   state.goal = null; state.profile = null; state.plan = null;
   state.done = []; state.meals = freshMeals();
   state.recents = []; state.favorites = []; state.customFoods = [];
-  state.draft = {}; state.sheet = null;
+  state.workoutOverrides = {};
+  state.draft = {}; state.sheet = null; state.exSheet = null;
   state.foodCat = 'All'; state.foodQuery = ''; state.activeMeal = 'Breakfast'; state.foodView = 'browse';
   /* note: session/syncStatus are left intact — "Clear my data" wipes data,
      not your sign-in. */
@@ -1448,6 +1506,7 @@ function focusHeading(page){
   h.focus({ preventScroll: true });
 }
 function mountPage(entry, dir, takeFocus){
+  state.exSheet = null;              /* never carry a sheet across a page change */
   const page = document.createElement('div');
   page.className = 'page ' + (dir === 1 ? 'enter-r' : dir === -1 ? 'enter-l' : 'live');
   page.innerHTML = `<div class="wrap">${entry.build()}</div>`;
@@ -1497,6 +1556,7 @@ function nav(title, build){
 }
 function goBack(){
   if (stack.length < 2) return;
+  state.daysEditing = false;       /* leaving the picker by any route ends the edit */
   kickRingSpin(-1);                /* …back: the other, so direction reads */
   stack.pop();
   mountPage(stack[stack.length-1], -1);
@@ -1556,6 +1616,55 @@ function runAction(el, page){
       if (a.act === 'continueGuest'){ goBack(); return; }
       if (a.act === 'signOut'){ signOutAccount().then(() => resetToMenu()); return; }
       if (a.act === 'open')      ROUTES[a.route](a);
+
+      /* ---- exercise swap / sets & reps (workoutOverrides) ---- */
+      if (a.act === 'exSwapOpen' || a.act === 'exRepsOpen'){
+        const wn = decodeURIComponent(a.wname);
+        const w = findWorkout(a.g, wn);
+        if (!w) return;
+        const r = resolveSlot(w, +a.slot);
+        state.exSheet = a.act === 'exSwapOpen'
+          ? { mode:'swap', g:a.g, wname:wn, slot:+a.slot, current:r.name }
+          : { mode:'reps', g:a.g, wname:wn, slot:+a.slot, current:r.name,
+              sets: r.sets || 3, reps: r.reps == null ? '10' : String(r.reps) };
+        refresh(); return;
+      }
+      if (a.act === 'exSwapPick'){
+        const s = state.exSheet;
+        if (s){
+          const spec = parseSpec(decodeURIComponent(a.spec));
+          setOverride(s.wname, s.slot,
+            { exercise: decodeURIComponent(a.ex), sets: spec.sets, reps: spec.reps });
+          state.exSheet = null; saveState(); refresh();
+        }
+        return;
+      }
+      if (a.act === 'exStep'){
+        const s = state.exSheet;
+        if (s){
+          const d = +a.d;
+          if (a.field === 'sets') s.sets = Math.min(12, Math.max(1, s.sets + d));
+          /* AMRAP / Failure aren't numbers — the steppers are disabled for those */
+          else if (/^\d+$/.test(String(s.reps))) s.reps = String(Math.min(100, Math.max(1, +s.reps + d)));
+          refresh();
+        }
+        return;
+      }
+      if (a.act === 'exRepsPreset'){ if (state.exSheet){ state.exSheet.reps = a.r; refresh(); } return; }
+      if (a.act === 'exRepsSave'){
+        const s = state.exSheet;
+        if (s){
+          setOverride(s.wname, s.slot, { sets:s.sets, reps:s.reps });
+          state.exSheet = null; saveState(); refresh();
+        }
+        return;
+      }
+      if (a.act === 'exSheetClose'){ state.exSheet = null; refresh(); return; }
+      if (a.act === 'exReset'){
+        clearOverride(decodeURIComponent(a.wname), +a.slot);
+        saveState(); refresh(); return;
+      }
+
       /* ---- food logging ---- */
       if (a.act === 'openFood') {          /* open the detail sheet for a food */
         const f = findFood(decodeURIComponent(a.fname));
@@ -1589,16 +1698,16 @@ function runAction(el, page){
          and every later render of the browse view threw. */
       if (a.act === 'setFoodCat'){ state.foodCat = decodeURIComponent(a.cat); state.foodQuery=''; refreshFoodOnly(); }
       if (a.act === 'setMeal')  { state.activeMeal = a.meal; refreshFoodOnly(); }
-      if (a.act === 'setFoodView'){ state.foodView = a.view; state.foodQuery=''; refreshFoodOnly(); }
+      if (a.act === 'setFoodView'){ state.foodView = a.view; state.foodQuery=''; state.customDraftName = ''; refreshFoodOnly(); }
+      /* carry the failed search term straight into the custom-food form */
+      if (a.act === 'addCustomFromSearch'){
+        state.customDraftName = state.foodQuery.trim();
+        state.foodView = 'custom'; state.foodQuery = '';
+        refreshFoodOnly(); return;
+      }
       if (a.act === 'saveCustom'){ saveCustomFromForm(); }
       if (a.act === 'complete')  {
-        const name = decodeURIComponent(a.wname);
-        const spec = WORKOUTS_SPECIALIZED[a.g];
-        let w = null;
-        for (const cat of Object.values(spec)) {
-          w = cat.find(x => x.name === name);
-          if (w) break;
-        }
+        const w = findWorkout(a.g, decodeURIComponent(a.wname));
         if (w) {
           state.done.push(w);
           saveState();
@@ -1619,7 +1728,43 @@ function runAction(el, page){
       }
       if (a.act === 'wizAct')   { state.draft.activity = +a.v; state.draft.actLabel = a.label; nav('Experience', pageExp); }
       if (a.act === 'wizExp')   { state.draft.exp = a.id; nav('Schedule', pageDays); }
-      if (a.act === 'wizDays')  { state.draft.days = +a.v; nav('Equipment', pageEquip); }
+      if (a.act === 'wizDays')  {
+        state.draft.days = +a.v;
+        state.draft.trainingDays = [...(DAY_PATTERNS[+a.v] || DAY_PATTERNS[4])];  /* seed with the default */
+        state.daysEditing = false;
+        nav('Training Days', pageWeekdays);
+      }
+      /* ---- weekday picker (wizard step, and standalone from the plan page) ---- */
+      if (a.act === 'toggleDay'){
+        const i = +a.d;
+        const cur = Array.isArray(state.draft.trainingDays) ? state.draft.trainingDays : [];
+        state.draft.trainingDays = cur.includes(i)
+          ? cur.filter(x => x !== i)
+          : [...cur, i].sort((x, y) => x - y);
+        refresh(); return;
+      }
+      if (a.act === 'weekdaysNext'){
+        const sel = state.draft.trainingDays || [];
+        if (sel.length !== (+state.draft.days || 4)) return;      /* guard, button is also disabled */
+        if (state.daysEditing){
+          /* editing an existing plan: remap the same sequence onto the new days */
+          state.profile = { ...state.profile, trainingDays: [...sel].sort((x, y) => x - y) };
+          state.plan = computePlan();
+          state.daysEditing = false;
+          saveState();
+          goBack();                       /* the plan page rebuilds with the new schedule */
+        } else {
+          nav('Equipment', pageEquip);
+        }
+        return;
+      }
+      if (a.act === 'cancelDays'){ state.daysEditing = false; goBack(); return; }
+      if (a.act === 'editDays'){
+        state.draft = { ...state.profile };
+        state.daysEditing = true;
+        nav('Training Days', pageWeekdays);
+        return;
+      }
       if (a.act === 'wizEquip') {
         state.draft.equip = a.id;
         state.profile = { ...state.draft };
@@ -1786,7 +1931,15 @@ function computePlan(){
   const fat     = Math.round(kcal * 0.27 / 9);
   const carbs   = Math.max(Math.round((kcal - protein*4 - fat*9) / 4), 0);
 
-  const pattern = DAY_PATTERNS[d.days] || DAY_PATTERNS[4];
+  /* The weekdays the user picked, if they picked any. Sorted so the ordered
+     focus-area sequence from SPLIT_TEMPLATES lands across the week in calendar
+     order — which keeps the sequence itself identical to the default, only the
+     weekdays move. Profiles saved before the picker existed have no
+     trainingDays and fall back to the original fixed pattern unchanged. */
+  const chosen = Array.isArray(d.trainingDays) && d.trainingDays.length === +d.days
+    ? [...d.trainingDays].sort((x, y) => x - y)
+    : null;
+  const pattern = chosen || DAY_PATTERNS[d.days] || DAY_PATTERNS[4];
   const template = (SPLIT_TEMPLATES[d.goal] || SPLIT_TEMPLATES.maintain)[d.days]
                 || (SPLIT_TEMPLATES[d.goal] || SPLIT_TEMPLATES.maintain)[4];
 
@@ -2018,7 +2171,7 @@ function pageMenu(){
     { t:"Workout Library", d:"Every session, organized by what it does for you", route:"workouts" },
     { t:"Activity Log",    d:"Everything you've burned so far", route:"log" },
   ] : [
-    { t:"Goal Analysis",   d:"Six quick questions — get calories, macros and a weekly schedule built for you", route:"goals" },
+    { t:"Goal Analysis",   d:"Seven quick questions — get calories, macros and a weekly schedule built for you", route:"goals" },
     { t:"Calorie Tracker", d:"Log fuel against your daily target", route:"calories" },
     { t:"Workout Library", d:"Every session, organized by what it does for you", route:"workouts" },
     { t:"Activity Log",    d:"Everything you've burned so far", route:"log" },
@@ -2046,7 +2199,7 @@ function pageMenu(){
 /* --- wizard step 1: goal --- */
 function pageGoals(){
   return `
-    <div class="kicker rv">Analysis · step 1 of 6</div>
+    <div class="kicker rv">Analysis · step 1 of 7</div>
     <h1 class="rv">What are you<br>training for?</h1>
     <p class="lede rv">Every answer from here on tunes your calories, macros and weekly schedule.</p>
     <div style="height:26px"></div>
@@ -2063,7 +2216,7 @@ function pageAbout(){
   const d = state.draft, imp = d.units === 'imp';
   const chip = (on) => `chip${on ? ' on' : ''}`;
   return `
-    <div class="kicker rv">Analysis · step 2 of 6</div>
+    <div class="kicker rv">Analysis · step 2 of 7</div>
     <h1 class="rv">About you</h1>
     <p class="lede rv">This feeds the Mifflin-St Jeor equation — the standard for estimating how much energy your body burns at rest.</p>
     <div style="height:22px"></div>
@@ -2113,7 +2266,7 @@ function pageActivity(){
     { v:1.725, l:"Very active",       d:"Physical job or training hard nearly every day" },
   ];
   return `
-    <div class="kicker rv">Analysis · step 3 of 6</div>
+    <div class="kicker rv">Analysis · step 3 of 7</div>
     <h1 class="rv">Your normal day,<br>outside the gym?</h1>
     <p class="lede rv">Daily movement often burns more than workouts do — this multiplies your resting burn into a true daily figure.</p>
     <div style="height:26px"></div>
@@ -2133,7 +2286,7 @@ function pageExp(){
     { id:"advanced",     l:"Seasoned",     d:"3+ years, training is part of who you are" },
   ];
   return `
-    <div class="kicker rv">Analysis · step 4 of 6</div>
+    <div class="kicker rv">Analysis · step 4 of 7</div>
     <h1 class="rv">How long have<br>you trained?</h1>
     <p class="lede rv">This sets how aggressively your sessions progress — and how much volume you start with.</p>
     <div style="height:26px"></div>
@@ -2148,7 +2301,7 @@ function pageExp(){
 /* --- wizard step 5: days per week --- */
 function pageDays(){
   return `
-    <div class="kicker rv">Analysis · step 5 of 6</div>
+    <div class="kicker rv">Analysis · step 5 of 7</div>
     <h1 class="rv">How many days<br>can you give it?</h1>
     <p class="lede rv">Honest answers beat ambitious ones — a 3-day plan you keep beats a 6-day plan you quit.</p>
     <div style="height:26px"></div>
@@ -2160,7 +2313,38 @@ function pageDays(){
       </div>`).join('')}`;
 }
 
-/* --- wizard step 6: equipment --- */
+/* --- wizard step 6: which weekdays (also reachable on its own from the plan) ---
+   The day COUNT stays where it was; this only decides which weekday indices
+   those sessions land on. SPLIT_TEMPLATES is untouched — it's keyed by count
+   and defines the order of focus areas, not the calendar. */
+function pageWeekdays(){
+  const d = state.draft;
+  const count = +d.days || 4;
+  const sel = Array.isArray(d.trainingDays) ? d.trainingDays : [];
+  const editing = !!state.daysEditing;
+  const ready = sel.length === count;
+  return `
+    <div class="kicker rv">${editing ? 'Your plan' : 'Analysis · step 6 of 7'}</div>
+    <h1 class="rv">${editing ? 'Move your<br>training days.' : 'Which days<br>suit you?'}</h1>
+    <p class="lede rv">Same plan, same order of sessions — this only decides which weekdays they land on. Pick exactly <b class="em">${count}</b>.</p>
+    <div style="height:22px"></div>
+    <div class="card rv">
+      <label class="fl" id="dayLabel">Training days</label>
+      <div class="daygrid" role="group" aria-labelledby="dayLabel">
+        ${DAYNAMES.map((dn, i) => `
+          <span class="daychip ${sel.includes(i) ? 'on' : ''}" data-act="toggleDay" data-d="${i}"
+                aria-pressed="${sel.includes(i)}">${dn}</span>`).join('')}
+      </div>
+      <div class="err">${ready ? '' : `Pick ${count} — you have ${sel.length} selected.`}</div>
+      <button class="btn" data-act="weekdaysNext" ${ready ? '' : 'disabled'}>${
+        editing ? 'Save these days' : 'Continue →'}</button>
+      ${editing ? `<button class="btn" style="background:transparent;color:var(--accent);border:1px solid var(--accent);margin-top:10px" data-act="cancelDays">Cancel</button>` : ''}
+    </div>
+    <p class="mut rv" style="font-size:12.5px;line-height:1.6;margin-top:14px">
+      Rest days fill in automatically around whatever you choose.</p>`;
+}
+
+/* --- wizard step 7: equipment --- */
 function pageEquip(){
   const eq = [
     { id:"none",  l:"Just my body",  d:"No equipment — home, park, hotel rooms" },
@@ -2168,7 +2352,7 @@ function pageEquip(){
     { id:"gym",   l:"Full gym",      d:"Barbells, machines, cardio kit — the lot" },
   ];
   return `
-    <div class="kicker rv">Analysis · step 6 of 6</div>
+    <div class="kicker rv">Analysis · step 7 of 7</div>
     <h1 class="rv">What's in<br>your arsenal?</h1>
     <p class="lede rv">Last one. Your plan adapts its movements to whatever you've actually got.</p>
     <div style="height:26px"></div>
@@ -2306,6 +2490,16 @@ function pagePlanFull(){
     <div class="card rv" style="border-color:var(--ember-mid);padding:13px 16px;margin-bottom:10px">
       <div class="fl" style="margin-bottom:5px">Balanced for the whole body</div>
       <p class="mut" style="font-size:13px;line-height:1.55;margin:0">Every plan covers full-body movement plus cardio — legs included — so nothing gets neglected.</p>
+    </div>
+    <div class="card click rv" data-act="editDays" style="padding:13px 16px;margin-bottom:10px">
+      <div class="row">
+        <div>
+          <div style="font-weight:700;font-size:14px">Change your days</div>
+          <div class="mut" style="font-size:12.5px;margin-top:2px">Currently ${
+            p.schedule.filter(s => !s.rest).map(s => s.day).join(' · ')} — keep the same sessions on different weekdays</div>
+        </div>
+        <span style="color:var(--ember);font-size:18px">→</span>
+      </div>
     </div>
     ${p.schedule.map((s,i)=> s.rest ? `
       <div class="card restday ${i%2 ? 'rv-r':'rv-l'}" style="padding:12px 16px">
@@ -2458,14 +2652,98 @@ function pageLibCat({g, cat}){
       </div>`).join('')}`;
 }
 
-function pageDetail({g, wname}){
-  const name = decodeURIComponent(wname);
+/* ================= EXERCISE CUSTOMIZATION =================
+   Prescribed sets are plain strings ("Bench Press 4x8"), so the exercise name
+   and the sets×reps token are recovered by parsing at render time rather than
+   being stored apart. FUTURE CLEANUP: migrating WORKOUTS_SPECIALIZED to
+   structured { exercise, sets, reps } objects would remove this parsing step
+   entirely, but it rewrites 80+ workout definitions — worth its own pass. */
+
+/* "Bulgarian Split Squat 3x8 each" -> {name:'Bulgarian Split Squat', sets:3, reps:'8', suffix:' each'}
+   Lines with no trailing NxM token ("Rest 30s", "Sprint up stairs") come back
+   with sets:null and are rendered as-is. */
+const SET_LINE = /^(.*?)\s+(\d+)\s*[x×]\s*([A-Za-z0-9][A-Za-z0-9\-–]*)(\s+each)?$/;
+function parseSetLine(line){
+  const m = String(line).match(SET_LINE);
+  if (!m) return { name:String(line), sets:null, reps:null, suffix:'' };
+  return { name:m[1], sets:+m[2], reps:m[3], suffix:m[4] || '' };
+}
+/* arsenal spec strings: "4x6-8", "3xAMRAP", "5x5", "3x12 each", "2-3min" */
+function parseSpec(spec){
+  const m = String(spec || '').match(/^(\d+)\s*[x×]\s*([A-Za-z0-9][A-Za-z0-9\-–]*)(\s+each)?$/);
+  return m ? { sets:+m[1], reps:m[2] } : { sets:3, reps:'10' };
+}
+
+/* one lookup, shared by pageDetail, "Mark Complete" and the swap actions */
+function findWorkout(g, name){
   const spec = WORKOUTS_SPECIALIZED[g];
-  let w = null;
-  for (const cat of Object.values(spec)) {
-    w = cat.find(x => x.name === name);
-    if (w) break;
+  if (!spec) return null;
+  for (const cat of Object.values(spec)){
+    const w = cat.find(x => x.name === name);
+    if (w) return w;
   }
+  return null;
+}
+
+const ovSlot = (wname, i) => {
+  const o = state.workoutOverrides[wname];
+  return (o && o[i]) || null;
+};
+function setOverride(wname, i, patch){
+  const o = state.workoutOverrides[wname] = state.workoutOverrides[wname] || {};
+  o[i] = { ...(o[i] || {}), ...patch };
+}
+function clearOverride(wname, i){
+  const o = state.workoutOverrides[wname];
+  if (!o) return;
+  delete o[i];
+  if (!Object.keys(o).length) delete state.workoutOverrides[wname];   /* don't keep empties */
+}
+/* the effective exercise for a slot: prescribed line with any override applied */
+function resolveSlot(w, i){
+  const base = parseSetLine(w.sets[i]);
+  const ov = ovSlot(w.name, i) || {};
+  const swapped = ov.exercise != null;
+  return {
+    base,
+    name:    swapped ? ov.exercise : base.name,
+    sets:    ov.sets != null ? ov.sets : base.sets,
+    reps:    ov.reps != null ? ov.reps : base.reps,
+    suffix:  swapped ? '' : base.suffix,          /* "each" belongs to the original movement */
+    swapped,
+    overridden: swapped || ov.sets != null || ov.reps != null,
+  };
+}
+
+/* ---- plain-language glossary for protocol jargon ---- */
+const PROTOCOL_GLOSSARY = [
+  ['Tabata',    /\btabata\b/i,     '20 seconds of all-out effort, 10 seconds of rest, repeated 8 times — one specific high-intensity interval format, not a general term.'],
+  ['HIIT',      /\bhiit\b/i,       'High-Intensity Interval Training: short near-maximal bursts separated by short recoveries.'],
+  ['EMOM',      /\bemom\b/i,       'Every Minute On the Minute: start the set when the clock hits the minute; whatever time is left over is your rest.'],
+  ['AMRAP',     /\bamrap\b/i,      'As Many Reps As Possible: keep going until you can’t complete another rep with good form.'],
+  ['Failure',   /\bfailure\b/i,    'Take the set until another clean rep isn’t possible. Stop at form breakdown — that’s the limit, not pain.'],
+  ['Fartlek',   /\bfartlek\b/i,    'Swedish for "speed play": an unstructured run where you freely alternate faster and easier stretches by feel.'],
+  ['Pyramid',   /\bpyramid\b/i,    'Work up in reps, distance or weight and then back down the same way — e.g. 1-2-3-2-1.'],
+  ['Ladder',    /\bladder\b/i,     'Step the reps or distance up (or down) one rung each round, rather than repeating the same set.'],
+  ['Tempo',     /\btempo\b/i,      'A sustained "comfortably hard" pace — you could speak in short phrases, not full sentences. Roughly one-hour race effort.'],
+  ['Circuit',   /\bcircuits?\b/i,  'Move through every exercise back to back with little or no rest, then repeat the whole round.'],
+  ['Intervals', /\bintervals?\b/i, 'Alternating hard efforts with easier recovery periods on a set work/rest clock.'],
+  ['Zone 2',    /\bzone ?2\b/i,    'An easy aerobic pace you could hold a conversation at — the low-intensity base most endurance is built on.'],
+];
+function glossaryFor(w){
+  const hay = [w.name, w.tag, ...w.sets].join(' · ');
+  return PROTOCOL_GLOSSARY.filter(([, re]) => re.test(hay));
+}
+
+/* ---- "Watch a demo": no media to host, so send them to a form search ---- */
+const demoUrl = n => 'https://www.youtube.com/results?search_query='
+                   + encodeURIComponent(n + ' exercise form');
+const demoLink = n => `<a class="demo" href="${escHtml(demoUrl(n))}" target="_blank"
+  rel="noopener noreferrer" aria-label="Watch a demo of ${escHtml(n)} (opens YouTube)">${
+  icon('play', 12)} Watch a demo</a>`;
+
+function pageDetail({g, wname}){
+  const w = findWorkout(g, decodeURIComponent(wname));
   if (!w) return '<p>Workout not found.</p>';
   const c = COACH[w.tag] || { rpe:'7 / 10', rest:'60–90s', tip:'Move with intent on every rep.' };
   const pf = state.profile;
@@ -2478,6 +2756,7 @@ function pageDetail({g, wname}){
   const catLabel = CAT_LABEL[wcat] || wcat || '';
   const groups = {};
   db.forEach(x => { const key = x.m || 'All movements'; (groups[key] = groups[key] || []).push(x); });
+  const gloss = glossaryFor(w);
   return `
     <span class="pill em rv">${w.tag}</span>
     <h1 class="rv" style="margin-top:10px">${w.name}</h1>
@@ -2489,11 +2768,41 @@ function pageDetail({g, wname}){
       <div class="stat"><b style="font-size:1.15rem">${w.duration}m</b><span>Duration</span></div>
     </div>
 
+    ${gloss.length ? `
+      <div class="card rv" style="margin-top:14px;padding:14px 16px">
+        <div class="fl" style="margin-bottom:9px">What the terms mean</div>
+        ${gloss.map(([term,,def]) => `
+          <div class="gloss"><b>${escHtml(term)}</b><span>${escHtml(def)}</span></div>`).join('')}
+      </div>` : ''}
+
     <div class="sec rv">Exercises</div>
-    ${w.sets.map((set,j)=>`
-      <div class="card rv-l" style="display:flex;align-items:center;gap:14px;padding:13px 16px">
-        <div class="exnum">${j+1}</div><div style="font-size:14.5px">${set}</div>
-      </div>`).join('')}
+    <p class="mut rv" style="font-size:12.5px;line-height:1.6;margin:-6px 0 10px">
+      Tap ${icon('swap',12)} Swap to replace a movement, or tap the sets×reps to change them.</p>
+    ${w.sets.map((set,j)=>{
+      const r = resolveSlot(w, j);
+      const editable = r.sets != null;
+      return `
+      <div class="card exline ${j%2 ? 'rv-r':'rv-l'}${r.overridden ? ' ov' : ''}">
+        <div class="exhead">
+          <div class="exnum">${j+1}</div>
+          <div style="flex:1;min-width:0">
+            <div class="exname">${escHtml(r.name)}</div>
+            <div class="exmeta">
+              ${editable ? `<span class="exreps" data-act="exRepsOpen" data-g="${g}" data-wname="${wname}" data-slot="${j}"
+                   >${r.sets}×${escHtml(String(r.reps))}${escHtml(r.suffix)}</span>` : ''}
+              ${demoLink(r.name)}
+            </div>
+          </div>
+        </div>
+        <div class="exctl">
+          <span class="exbtn" data-act="exSwapOpen" data-g="${g}" data-wname="${wname}" data-slot="${j}"
+            >${icon('swap',13)} Swap</span>
+          ${r.overridden ? `<span class="exbtn warn" data-act="exReset" data-wname="${wname}" data-slot="${j}"
+            >${icon('reset',13)} Reset</span>` : ''}
+        </div>
+        ${r.overridden ? `<div class="ovnote">Customized — originally <b>${escHtml(w.sets[j])}</b></div>` : ''}
+      </div>`;
+    }).join('')}
 
     <div class="card rv-r" style="margin-top:16px">
       <div class="fl" style="margin-bottom:8px">Coach's brief</div>
@@ -2502,20 +2811,97 @@ function pageDetail({g, wname}){
     </div>
 
     <div class="sec rv" style="margin-top:36px">The full ${catLabel} arsenal · ${db.length} movements</div>
-    <p class="mut rv" style="font-size:13px;line-height:1.6;margin:-2px 0 6px">Every ${catLabel.toLowerCase()} movement in the catalog — swap any of these into today's session.</p>
+    <p class="mut rv" style="font-size:13px;line-height:1.6;margin:-2px 0 6px">Every ${catLabel.toLowerCase()} movement in the catalog. To use one, tap ${icon('swap',12)} Swap on the exercise you want to replace.</p>
     ${Object.entries(groups).map(([mg, list]) => `
       ${mg !== 'All movements' ? `<div class="fl rv" style="margin:20px 0 8px;color:var(--ember)">${mg} · ${list.length}</div>` : '<div style="height:10px"></div>'}
       ${list.map((x,j)=>`
         <div class="card ${j%2 ? 'rv-r':'rv-l'}" style="padding:10px 14px;margin-bottom:8px">
           <div class="row">
-            <div><div style="font-weight:600;font-size:14px">${x.n}</div>
-            <div class="mut" style="font-size:11.5px;margin-top:2px">${x.e}</div></div>
-            <span class="em" style="font-weight:700;font-size:13px;white-space:nowrap">${x.s}</span>
+            <div style="min-width:0"><div style="font-weight:600;font-size:14px">${escHtml(x.n)}</div>
+            <div class="mut" style="font-size:11.5px;margin-top:2px">${escHtml(x.e)}</div>
+            <div class="exmeta" style="margin-top:5px">${demoLink(x.n)}</div></div>
+            <span class="em" style="font-weight:700;font-size:13px;white-space:nowrap">${escHtml(x.s)}</span>
           </div>
         </div>`).join('')}`).join('')}
 
     <div class="rv" style="margin-top:18px">
       <button class="btn" data-act="complete" data-g="${g}" data-wname="${wname}">✓ Mark Complete</button>
+    </div>
+    ${exerciseSheet(groups, db.length)}`;
+}
+
+/* ---- the swap picker / sets-reps editor, same sheet pattern as the food
+        detail sheet in the Calorie Tracker (same backdrop, grab handle,
+        .qstep +/- buttons and .qpre presets) ---- */
+function exerciseSheet(groups, dbCount){
+  const s = state.exSheet;
+  if (!s) return '';
+
+  if (s.mode === 'swap'){
+    return `
+    <div class="sheet-bd" data-act="exSheetClose" data-plain>
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="Choose a replacement exercise"
+           tabindex="-1" onclick="event.stopPropagation()">
+        <div class="sheet-grab"></div>
+        <div class="row">
+          <div style="min-width:0">
+            <div style="font-family:'Unbounded';font-weight:700;font-size:18px;line-height:1.2">Swap exercise ${s.slot + 1}</div>
+            <div class="mut" style="font-size:12.5px;margin-top:3px">Replacing <b>${escHtml(s.current)}</b> · ${dbCount} to choose from</div>
+          </div>
+          <button class="sheet-x" data-act="exSheetClose" aria-label="Close">&times;</button>
+        </div>
+        <div style="margin-top:14px">
+          ${Object.entries(groups).map(([mg, list]) => `
+            ${mg !== 'All movements' ? `<div class="fl" style="margin:14px 0 7px;color:var(--ember)">${escHtml(mg)}</div>` : ''}
+            ${list.map(x => `
+              <div class="fitem" data-act="exSwapPick" data-ex="${encodeURIComponent(x.n)}" data-spec="${encodeURIComponent(x.s)}">
+                <div style="flex:1;min-width:0">
+                  <div style="font-weight:600;font-size:14px">${escHtml(x.n)}</div>
+                  <div class="mut" style="font-size:11.5px;margin-top:2px">${escHtml(x.e)} · ${escHtml(x.s)}</div>
+                </div>
+                <span class="em" style="font-size:19px;flex-shrink:0">→</span>
+              </div>`).join('')}`).join('')}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  /* sets / reps editor */
+  const REP_PRESETS = ['8','10','12','15','AMRAP','Failure'];
+  return `
+    <div class="sheet-bd" data-act="exSheetClose" data-plain>
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="Edit sets and reps"
+           tabindex="-1" onclick="event.stopPropagation()">
+        <div class="sheet-grab"></div>
+        <div class="row">
+          <div style="min-width:0">
+            <div style="font-family:'Unbounded';font-weight:700;font-size:18px;line-height:1.2">${escHtml(s.current)}</div>
+            <div class="mut" style="font-size:12.5px;margin-top:3px">Set your own volume for this session</div>
+          </div>
+          <button class="sheet-x" data-act="exSheetClose" aria-label="Close">&times;</button>
+        </div>
+
+        <div class="fl" style="margin:20px 0 0;text-align:center">Sets</div>
+        <div class="qstep" style="margin:8px 0 4px">
+          <button data-act="exStep" data-field="sets" data-d="-1" aria-label="One fewer set">−</button>
+          <div class="qval">${s.sets}<small>sets</small></div>
+          <button data-act="exStep" data-field="sets" data-d="1" aria-label="One more set">+</button>
+        </div>
+
+        <div class="fl" style="margin:18px 0 0;text-align:center">Reps</div>
+        <div class="qstep" style="margin:8px 0 4px">
+          <button data-act="exStep" data-field="reps" data-d="-1" aria-label="One fewer rep"
+            ${/^\d+$/.test(String(s.reps)) ? '' : 'disabled'}>−</button>
+          <div class="qval">${escHtml(String(s.reps))}<small>reps</small></div>
+          <button data-act="exStep" data-field="reps" data-d="1" aria-label="One more rep"
+            ${/^\d+$/.test(String(s.reps)) ? '' : 'disabled'}>+</button>
+        </div>
+        <div class="qpre">
+          ${REP_PRESETS.map(p => `<span class="${String(s.reps)===p?'on':''}" data-act="exRepsPreset" data-r="${p}">${p}</span>`).join('')}
+        </div>
+
+        <button class="btn" data-act="exRepsSave">Save ${s.sets}×${escHtml(String(s.reps))}</button>
+      </div>
     </div>`;
 }
 
@@ -2552,7 +2938,7 @@ function saveCustomFromForm(){
   const food = { name, srv: g('cfSrv').trim() || '1 serving', calories: Math.round(cal),
     p:+g('cfP')||0, c:+g('cfC')||0, f:+g('cfF')||0, cat:'Custom', custom:true };
   state.customFoods = [food, ...state.customFoods.filter(x=>x.name!==name)];
-  state.foodView = 'browse'; state.foodQuery = '';
+  state.foodView = 'browse'; state.foodQuery = ''; state.customDraftName = '';
   state.sheet = { food, qty:1 };   /* jump straight to logging it */
   saveState();
   refreshFoodOnly();
@@ -2662,10 +3048,23 @@ function foodZone(){
     ` : ''}
 
     ${shown.length ? shown.map(foodRow).join('')
-      : `<div class="empty">${
-          state.foodView==='recents' ? 'No recent foods yet — log something and it lands here.'
-        : state.foodView==='favorites' ? `No favorites yet. Tap the ${icon('star', 14)} on any food to save it.`
-        : `No food matches "${state.foodQuery}".`}</div>`}
+      : state.foodView==='recents'
+        ? `<div class="empty">No recent foods yet — log something and it lands here.</div>`
+      : state.foodView==='favorites'
+        ? `<div class="empty">No favorites yet. Tap the ${icon('star', 14)} on any food to save it.</div>`
+      : q
+        /* a failed search is the moment custom foods are actually wanted, so
+           offer it here instead of leaving them to find the button below */
+        ? `<div class="empty" style="padding:26px 16px 14px">
+             No matches for “<b class="em">${escHtml(state.foodQuery.trim())}</b>”.
+           </div>
+           <button class="btn" data-act="addCustomFromSearch">
+             + Add “${escHtml(state.foodQuery.trim())}” as a custom food
+           </button>
+           <p class="mut" style="text-align:center;font-size:12px;line-height:1.6;margin:10px 0 0">
+             You’ll set the serving, calories and macros on the next screen.
+           </p>`
+        : `<div class="empty">Nothing to show here.</div>`}
     ${results && results.length > 60 ? `<div class="empty">Showing first 60 of ${results.length} — keep typing to narrow it down.</div>` : ''}
 
     <div style="margin-top:14px">
@@ -2676,7 +3075,7 @@ function foodZone(){
   const customForm = `
     <div class="sec">Create a custom food</div>
     <div class="card" style="padding:18px">
-      <input class="inp" id="cfName" placeholder="Food name (e.g. Mom's lasagna)" style="width:100%;box-sizing:border-box;margin-bottom:10px">
+      <input class="inp" id="cfName" placeholder="Food name (e.g. Mom's lasagna)" value="${escHtml(state.customDraftName || '')}" style="width:100%;box-sizing:border-box;margin-bottom:10px">
       <input class="inp" id="cfSrv" placeholder="Serving (e.g. 1 slice, 100g)" style="width:100%;box-sizing:border-box;margin-bottom:10px">
       <div class="grid2" style="gap:10px">
         <input class="inp" id="cfCal" type="number" placeholder="Calories" style="box-sizing:border-box">
@@ -2846,9 +3245,10 @@ const ROUTES = {
 };
 
 addEventListener('keydown', e => {
-  /* the food sheet is modal — Escape closes it, and Back must not fire past it */
+  /* sheets are modal — Escape closes them, and Back must not fire past one */
   if (e.key === 'Escape' && state.sheet){ state.sheet = null; refreshFoodOnly(); return; }
-  if (e.key === 'ArrowLeft' && !state.sheet && e.target.tagName !== 'INPUT') goBack();
+  if (e.key === 'Escape' && state.exSheet){ state.exSheet = null; refresh(); return; }
+  if (e.key === 'ArrowLeft' && !state.sheet && !state.exSheet && e.target.tagName !== 'INPUT') goBack();
 });
 
 /* boot */
