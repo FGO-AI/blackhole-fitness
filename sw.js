@@ -1,7 +1,7 @@
 /* Blackhole Fitness — service worker
    Cache-first for the app shell (+ the one CDN dependency), network fallback,
    and the cached page as a last resort when offline. */
-const CACHE = 'bhf-v2';
+const CACHE = 'bhf-v3';
 
 const LOCAL_ASSETS = [
   './',
