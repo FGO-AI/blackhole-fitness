@@ -3096,7 +3096,7 @@ function foodZone(){
     const presets = [0.5, 1, 1.5, 2, 3];
     return `
     <div class="sheet-bd" data-act="closeSheet" data-plain>
-      <div class="sheet" role="dialog" aria-modal="true" aria-label="Log ${f.name}"
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="Log ${escHtml(f.name)}"
            tabindex="-1" onclick="event.stopPropagation()">
         <div class="sheet-grab"></div>
         <div class="row">
