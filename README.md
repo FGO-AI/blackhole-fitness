@@ -49,17 +49,22 @@ Leave the constants at their `YOUR_…` placeholders and the app stays in guest 
 
 Because the app is named `index.html`, GitHub Pages serves it automatically.
 
-### Bump the service worker cache on every deploy
+### Caching strategy, and the cache bump
 
-`sw.js` is **cache-first for the app shell, including `index.html`**. The only thing that triggers a refresh is `sw.js` itself changing bytes: the browser then reinstalls the worker, and `activate` deletes every cache whose key doesn't match.
+`sw.js` splits its two jobs:
 
-So whenever you change `index.html`, bump the version in the same commit:
+- **The document is network-first.** A navigation always tries the network, and only falls back to the cached copy of `index.html` when the fetch fails. A deploy therefore reaches people on their next load whether or not anyone bumped anything.
+- **Everything else is cache-first** — icons, the manifest, the pinned CDN scripts. These are what make a cold offline load work, and none of them can strand you on an old app the way the document could.
+
+Bumping the version on a commit that touches `index.html` is still worth doing, because `activate` deletes every cache whose key doesn't match and that's what clears superseded icons and stale CDN copies:
 
 ```js
-const CACHE = 'bhf-v3';   // → 'bhf-v4', etc.
+const CACHE = 'bhf-v7';   // → 'bhf-v8', etc.
 ```
 
-Skip it and returning visitors keep the old app indefinitely, no matter what you deploy.
+But it is now defense-in-depth for those secondary assets, not the app's only protection against staleness. This used to be the single point of failure: cache-first on the document meant a forgotten bump left every returning visitor on an old build permanently — which is exactly how two weeks of shipped work once went undelivered.
+
+One transition note: a new `sw.js` only takes over after the browser has downloaded it, so the *first* load after any service-worker change still runs the previous worker's logic. The load after that gets the new behaviour.
 
 ## Tech
 
