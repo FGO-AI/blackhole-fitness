@@ -32,8 +32,13 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://kfoifswvyjppywyeurrq.supabase.co">
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<!-- deferred: neither library is needed to parse or paint the first screen, and
+     ~400KB of blocking JS in <head> was the whole first-paint budget. Deferred
+     scripts run in order after the document parses but BEFORE DOMContentLoaded,
+     which is what boot() waits for at the bottom of the inline script — so both
+     are guaranteed present by the time anything touches them. -->
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
 :root{
   /* card sits over the animated shader; .85 keeps secondary text legible
@@ -321,13 +326,20 @@ const SUPABASE_ANON_KEY = 'sb_publishable_5grvc7xyGIAfk-hYOfaIlA_iavbyUNg';
 /* Defensive init: null unless the config is real AND the CDN script loaded.
    `supa` being null is the single signal for "guest/local-only mode". */
 let supa = null;
-try {
-  const configured = SUPABASE_URL && SUPABASE_ANON_KEY
-    && !SUPABASE_URL.startsWith('YOUR_') && !SUPABASE_ANON_KEY.startsWith('YOUR_');
-  if (configured && window.supabase && typeof window.supabase.createClient === 'function') {
-    supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  }
-} catch (e) { supa = null; /* any failure → stay in local-only mode */ }
+/* Called from boot(), not at parse time: supabase-js is deferred now, so
+   window.supabase doesn't exist yet while this script is being evaluated.
+   The guards below are unchanged and still matter — a deferred script can
+   still fail to load (network down, blocked, CDN outage), and that has to
+   degrade to guest mode rather than break the app. */
+function initSupabase(){
+  try {
+    const configured = SUPABASE_URL && SUPABASE_ANON_KEY
+      && !SUPABASE_URL.startsWith('YOUR_') && !SUPABASE_ANON_KEY.startsWith('YOUR_');
+    if (configured && window.supabase && typeof window.supabase.createClient === 'function') {
+      supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    }
+  } catch (e) { supa = null; /* any failure → stay in local-only mode */ }
+}
 
 /* ================= ICONS =================
    Inline SVG set — no emoji, no icon font, no extra requests. Everything is
@@ -1091,7 +1103,13 @@ function kickRingSpin(dir){
                 Math.min(RING_VEL_MAX, ringSpinVel + dir * RING_KICK));
 }
 
-if (window.THREE) {
+/* Called from boot(). Three.js is deferred, so window.THREE is undefined while
+   this script evaluates — defining the function here is safe, running it is
+   not. The guard is kept: if the CDN request failed the app still runs, just
+   without the background, and nav()/goBack() still kick ringSpin harmlessly
+   because those live at module scope above. */
+function initBackground(){
+  if (!window.THREE) return;
   const canvas = document.getElementById('bhCanvas');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias:false, powerPreference:'high-performance' });
   renderer.setClearColor(0x0d0f14, 1);
@@ -3252,17 +3270,30 @@ addEventListener('keydown', e => {
 });
 
 /* boot */
-state.draft = {};
-state.profile = null;
-state.plan = null;
-loadState();                 /* restore the durable slice if a valid one exists */
-stack = [{ title:'Menu', build:pageMenu }];
-mountPage(stack[0], 0);
+/* Everything above is definitions and data — it runs immediately as the parser
+   reaches this script, exactly as before. Only the parts that actually touch
+   THREE or supabase wait, because both libraries are deferred and therefore
+   execute after this script but before DOMContentLoaded. */
+function boot(){
+  initBackground();
+  initSupabase();
 
-/* Account sync is layered in AFTER the instant local boot — no loading screen.
-   Once the async session check resolves (or a magic link completes in this
-   tab), the current page silently re-renders with cloud data merged in. */
-watchAuth(() => refresh());
+  state.draft = {};
+  state.profile = null;
+  state.plan = null;
+  loadState();                 /* restore the durable slice if a valid one exists */
+  stack = [{ title:'Menu', build:pageMenu }];
+  mountPage(stack[0], 0);
+
+  /* Account sync is layered in AFTER the instant local boot — no loading screen.
+     Once the async session check resolves (or a magic link completes in this
+     tab), the current page silently re-renders with cloud data merged in. */
+  watchAuth(() => refresh());
+}
+/* DOMContentLoaded cannot have fired yet at this point in a single-document
+   page, but the readyState check costs nothing and removes the doubt. */
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+else boot();
 
 /* ================= SERVICE WORKER =================
    Guarded behind an http(s) check so it's a silent no-op on file:// or in
