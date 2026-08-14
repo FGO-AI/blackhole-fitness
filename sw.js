@@ -10,7 +10,7 @@
    navigations go to the network first (see the fetch handler), so a deploy
    where someone forgets to bump this still reaches users on their next load.
    That forgetting is exactly what hid two weeks of shipped work before. */
-const CACHE = 'bhf-v8';
+const CACHE = 'bhf-v9';
 
 const LOCAL_ASSETS = [
   './',
