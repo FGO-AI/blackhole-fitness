@@ -156,6 +156,12 @@ h1{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(1.9rem,6vw
   margin:-11px -11px -11px 0}
 .stat b{display:block;font-family:'Unbounded',sans-serif;font-weight:500;font-size:clamp(1.3rem,4vw,1.9rem);color:var(--ember)}
 .stat span{font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--mut)}
+/* period-over-period delta in the Activity Log. "Down" is muted, not danger —
+   a lighter week is a training choice, not an error state. */
+.trend{display:block;font-style:normal;font-size:11px;margin-top:6px;letter-spacing:.03em;white-space:nowrap}
+.trend.up{color:var(--ember)}
+.trend.down{color:var(--mut)}
+.trend.flat{color:var(--mut);opacity:.65}
 .exnum{width:28px;height:28px;border-radius:8px;background:var(--ember-dim);border:1px solid var(--ember-mid);display:flex;align-items:center;justify-content:center;color:var(--ember);font-size:13px;font-weight:700;flex-shrink:0}
 
 /* ============ ANALYSIS WIZARD ============ */
@@ -206,6 +212,10 @@ h1{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(1.9rem,6vw
 .seg{display:flex;background:rgba(22,26,35,.7);border:1px solid var(--border);border-radius:12px;padding:3px;margin:6px 0 14px;gap:3px}
 .seg button{flex:1;background:transparent;border:none;color:var(--mut);font-family:inherit;font-size:12.5px;font-weight:600;padding:13px 4px;border-radius:9px;cursor:pointer;transition:all .25s}
 .seg button.on{background:var(--accent);color:#fff}
+/* the Activity Log runs four segments rather than three — keep the longest
+   ("This Month") on one line on narrow phones instead of letting it wrap */
+.seg button{white-space:nowrap}
+@media(max-width:420px){.seg button{font-size:11.5px;padding:13px 2px;letter-spacing:-.01em}}
 .mealtabs{display:flex;gap:7px;overflow-x:auto;padding:2px 0 12px;scrollbar-width:none}
 .mealtabs::-webkit-scrollbar{display:none}
 .mealtab{white-space:nowrap;padding:12px 15px;border:1px solid var(--border);border-radius:99px;cursor:pointer;font-size:13px;color:var(--mut);background:rgba(22,26,35,.6);transition:all .25s;flex-shrink:0;display:flex;align-items:center;gap:7px;user-select:none}
@@ -857,6 +867,10 @@ const state = {
   workoutOverrides:{},
   exSheet:null,                /* exercise swap / sets-reps sheet, transient */
   daysEditing:false,           /* weekday picker opened from the plan, not the wizard */
+  /* Activity Log bucket. Defaults to career so the page opens showing the full
+     history it always has — the shorter periods are one tap away, and defaulting
+     to one of them would look like history had been lost. */
+  logPeriod:'career',
   foodCat:'All', foodQuery:'', customDraftName:'',
   activeMeal:'Breakfast',      /* which meal we're logging into */
   sheet:null,                  /* food-detail sheet: {food, qty} or null */
@@ -886,6 +900,14 @@ function repairShapes(){
   if (!state.meals || typeof state.meals !== 'object') state.meals = freshMeals();
   for (const m of Object.keys(freshMeals())) if (!Array.isArray(state.meals[m])) state.meals[m] = [];
   for (const k of ['done','recents','favorites','customFoods']) if (!Array.isArray(state[k])) state[k] = [];
+  /* History predates completedAt, so entries saved before that change simply
+     don't have one. Drop a completedAt that won't parse rather than inventing a
+     date — an undated entry still counts toward career totals, it just can't be
+     placed in a day/week/month bucket, and the Log says so. */
+  state.done = state.done.filter(w => w && typeof w === 'object');
+  for (const w of state.done){
+    if ('completedAt' in w && !Number.isFinite(Date.parse(w.completedAt))) delete w.completedAt;
+  }
   /* map-of-maps, not an array — an older blob won't have it at all */
   if (!state.workoutOverrides || typeof state.workoutOverrides !== 'object'
       || Array.isArray(state.workoutOverrides)) state.workoutOverrides = {};
@@ -987,6 +1009,7 @@ function resetState(){
   state.workoutOverrides = {};
   state.draft = {}; state.sheet = null; state.exSheet = null;
   state.foodCat = 'All'; state.foodQuery = ''; state.activeMeal = 'Breakfast'; state.foodView = 'browse';
+  state.logPeriod = 'career';
   /* note: session/syncStatus are left intact — "Clear my data" wipes data,
      not your sign-in. */
 }
@@ -1677,6 +1700,7 @@ function runAction(el, page){
         }
         return;
       }
+      if (a.act === 'setLogPeriod'){ state.logPeriod = a.p; refresh(); return; }
       if (a.act === 'exSheetClose'){ state.exSheet = null; refresh(); return; }
       if (a.act === 'exReset'){
         clearOverride(decodeURIComponent(a.wname), +a.slot);
@@ -1727,7 +1751,9 @@ function runAction(el, page){
       if (a.act === 'complete')  {
         const w = findWorkout(a.g, decodeURIComponent(a.wname));
         if (w) {
-          state.done.push(w);
+          /* copy, don't push the shared library object — and stamp it, which is
+             what lets the Activity Log bucket by day/week/month */
+          state.done.push({ ...w, completedAt: new Date().toISOString() });
           saveState();
           el.textContent = '✓ Logged'; el.style.background = 'var(--ember)';
           setTimeout(goBack, 650);
@@ -3218,9 +3244,78 @@ function bindAccountInput(page){
   }
 }
 
+/* ================= ACTIVITY PERIODS =================
+   Every boundary is built from LOCAL date components, never from millisecond
+   offsets or UTC date strings. That distinction is the whole game here: a
+   session finished at 23:50 local is stored as UTC, so comparing its UTC
+   calendar date would push it into tomorrow for anyone east of Greenwich.
+   Building local midnights and comparing instants keeps "today" meaning the
+   user's today. Component arithmetic also survives DST — new Date(y, m, d+1)
+   is the next calendar midnight whether that day ran 23, 24 or 25 hours. */
+const startOfDay   = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const addDays      = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+const startOfMonth = d => new Date(d.getFullYear(), d.getMonth(), 1);
+const addMonths    = (d, n) => new Date(d.getFullYear(), d.getMonth() + n, 1);
+/* Monday-first, matching DAYNAMES and the weekday picker. getDay() is
+   Sunday-first, so (+6)%7 rotates Monday to 0. */
+const startOfWeek  = d => addDays(startOfDay(d), -((d.getDay() + 6) % 7));
+
+/* ms timestamp for an entry, or null when it predates completedAt */
+function doneTime(w){
+  if (!w || typeof w.completedAt !== 'string') return null;
+  const t = Date.parse(w.completedAt);
+  return Number.isFinite(t) ? t : null;
+}
+
+/* [start, end) — half-open, so an entry can never fall into two buckets */
+function periodRange(period, now = new Date()){
+  if (period === 'today'){ const s = startOfDay(now);   return [s, addDays(s, 1)]; }
+  if (period === 'week') { const s = startOfWeek(now);  return [s, addDays(s, 7)]; }
+  if (period === 'month'){ const s = startOfMonth(now); return [s, addMonths(s, 1)]; }
+  return null;                       /* career — unbounded, includes undated */
+}
+/* the immediately preceding equivalent period, for the trend arrows */
+function priorRange(period, now = new Date()){
+  if (period === 'today'){ const s = addDays(startOfDay(now), -1);     return [s, addDays(s, 1)]; }
+  if (period === 'week') { const s = addDays(startOfWeek(now), -7);    return [s, addDays(s, 7)]; }
+  if (period === 'month'){ const s = addMonths(startOfMonth(now), -1); return [s, addMonths(s, 1)]; }
+  return null;
+}
+const inRange = range => w => {
+  if (!range) return true;           /* career takes everything, dated or not */
+  const t = doneTime(w);
+  return t !== null && t >= range[0].getTime() && t < range[1].getTime();
+};
+
+/* the single reducer every bucket goes through */
+function doneStats(pred){
+  let count = 0, kcal = 0, minutes = 0;
+  for (const w of state.done){
+    if (!pred(w)) continue;
+    count++;
+    kcal    += +w.burn || 0;
+    minutes += +w.duration || 0;
+  }
+  return { count, kcal, minutes };
+}
+
+const LOG_PERIODS = [['today','Today'],['week','This Week'],['month','This Month'],['career','Career']];
+const PERIOD_PHRASE = { today:'today', week:'this week', month:'this month', career:'all time' };
+const PRIOR_PHRASE  = { today:'yesterday', week:'last week', month:'last month' };
+
+/* "Today · 6:40 PM" / "Yesterday · 7:15 AM" / "Tue 3 Jun" */
+function logDate(w){
+  const t = doneTime(w);
+  if (t === null) return '';
+  const dt = new Date(t), day = startOfDay(dt).getTime(), today = startOfDay(new Date()).getTime();
+  const time = dt.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' });
+  if (day === today) return `Today · ${time}`;
+  if (day === addDays(new Date(), -1).getTime()) return `Yesterday · ${time}`;
+  return dt.toLocaleDateString([], { weekday:'short', day:'numeric', month:'short' });
+}
+
 function pageLog(){
   const d = state.done;
-  const weekBurn = d.reduce((s,w)=>s+w.burn,0);
   if (!d.length) return `
     <div class="kicker rv">History</div>
     <h1 class="rv">Activity Log</h1>
@@ -3228,25 +3323,62 @@ function pageLog(){
     <div class="rv" style="margin-top:24px;max-width:320px">
       <button class="btn" data-act="open" data-route="workouts">Find a Workout</button>
     </div>`;
+
+  const period = state.logPeriod || 'career';
+  const range  = periodRange(period);
+  const cur    = doneStats(inRange(range));
+  const prev   = range ? doneStats(inRange(priorRange(period))) : null;
+  const list   = range ? d.filter(inRange(range)) : d;
+  const undated = d.reduce((n, w) => n + (doneTime(w) === null ? 1 : 0), 0);
+
+  /* delta against the equivalent prior period. A quieter week is not an error,
+     so "down" is muted rather than danger-coloured. */
+  const trend = (a, b, unit = '') => {
+    if (!prev) return '';
+    const delta = a - b;
+    if (!delta) return `<i class="trend flat">no change</i>`;
+    return `<i class="trend ${delta > 0 ? 'up' : 'down'}">${delta > 0 ? '▲ +' : '▼ −'}${Math.abs(delta)}${unit}</i>`;
+  };
+
   return `
     <div class="kicker rv">History</div>
     <h1 class="rv">Activity Log</h1>
-    ${state.plan ? `<p class="lede rv">That's <b class="em">${weekBurn} kcal</b> burned — about ${(weekBurn / state.plan.kcal).toFixed(1)} full days of your fuel target.</p>` : ''}
-    <div class="card rv" style="display:flex;justify-content:space-around;text-align:center;padding:20px 10px;border-color:var(--ember-mid);margin-top:18px">
-      <div class="stat"><b>${d.length}</b><span>Workouts</span></div>
-      <div class="stat"><b>${weekBurn}</b><span>kcal Burned</span></div>
-      <div class="stat"><b>${d.reduce((s,w)=>s+w.duration,0)}m</b><span>Active Time</span></div>
+
+    <div class="seg rv" role="group" aria-label="Time period">
+      ${LOG_PERIODS.map(([id, label]) => `
+        <button class="${period === id ? 'on' : ''}" data-act="setLogPeriod" data-p="${id}"
+          aria-pressed="${period === id}">${label}</button>`).join('')}
     </div>
-    ${[...d].reverse().map((w,i)=>`
+
+    <p class="lede rv">${cur.count
+      ? `That's <b class="em">${cur.kcal} kcal</b> burned ${PERIOD_PHRASE[period]} across ${cur.count} session${cur.count === 1 ? '' : 's'}${
+          state.plan ? ` — about ${(cur.kcal / state.plan.kcal).toFixed(1)} full days of your fuel target` : ''}.`
+      : `Nothing logged ${PERIOD_PHRASE[period]} yet. Your history is still here — switch to Career to see all of it.`}</p>
+
+    <div class="card rv" style="display:flex;justify-content:space-around;text-align:center;padding:20px 10px;border-color:var(--ember-mid);margin-top:18px">
+      <div class="stat"><b>${cur.count}</b><span>Workouts</span>${prev ? trend(cur.count, prev.count) : ''}</div>
+      <div class="stat"><b>${cur.kcal}</b><span>kcal Burned</span>${prev ? trend(cur.kcal, prev.kcal) : ''}</div>
+      <div class="stat"><b>${cur.minutes}m</b><span>Active Time</span>${prev ? trend(cur.minutes, prev.minutes, 'm') : ''}</div>
+    </div>
+    ${prev ? `<p class="mut rv" style="text-align:center;font-size:11.5px;margin:9px 0 0">compared with ${PRIOR_PHRASE[period]}</p>` : ''}
+
+    ${period === 'career' && undated ? `
+      <p class="mut rv" style="font-size:12px;line-height:1.6;margin:16px 0 0;padding:10px 13px;border:1px solid var(--border);border-radius:10px">
+        ${undated} workout${undated === 1 ? '' : 's'} logged before dates were tracked — included in your career total only.
+      </p>` : ''}
+
+    ${list.length ? [...list].reverse().map((w,i)=>`
       <div class="card ${i%2 ? 'rv-r':'rv-l'}">
         <div class="row">
-          <div><span class="pill">${w.tag}</span>
-            <div class="big" style="font-size:16px;margin-top:7px">${w.name}</div>
-            <div class="mut" style="font-size:12.5px;margin-top:3px">${w.duration} min · <span class="em">${w.burn} kcal</span></div>
+          <div><span class="pill">${escHtml(w.tag)}</span>
+            <div class="big" style="font-size:16px;margin-top:7px">${escHtml(w.name)}</div>
+            <div class="mut" style="font-size:12.5px;margin-top:3px">${w.duration} min · <span class="em">${w.burn} kcal</span>${
+              logDate(w) ? ` · ${escHtml(logDate(w))}` : ''}</div>
           </div>
           <span class="gn" style="display:flex">${icon('check', 24, { label:'Completed' })}</span>
         </div>
-      </div>`).join('')}`;
+      </div>`).join('')
+    : `<div class="empty" style="margin-top:16px">No sessions in this period.</div>`}`;
 }
 
 /* ================= ROUTES ================= */
