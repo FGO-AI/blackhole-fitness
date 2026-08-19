@@ -30,8 +30,14 @@ create policy "select own row" on public.app_data for select
   using (auth.uid() = user_id);
 create policy "insert own row" on public.app_data for insert
   with check (auth.uid() = user_id);
+-- The with check below is explicit rather than implied. Postgres already
+-- applies an update policy's using expression to the new row when with check
+-- is omitted, so this changes nothing today; it is here so that a later edit
+-- loosening using (to share rows, say) cannot silently loosen the write check
+-- along with it.
 create policy "update own row" on public.app_data for update
-  using (auth.uid() = user_id);
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
 create policy "delete own row" on public.app_data for delete
   using (auth.uid() = user_id);
 

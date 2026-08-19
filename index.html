@@ -346,7 +346,19 @@ function initSupabase(){
     const configured = SUPABASE_URL && SUPABASE_ANON_KEY
       && !SUPABASE_URL.startsWith('YOUR_') && !SUPABASE_ANON_KEY.startsWith('YOUR_');
     if (configured && window.supabase && typeof window.supabase.createClient === 'function') {
-      supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      /* PKCE, not the library default. supabase-js defaults to flowType
+         'implicit', which returns the access AND refresh tokens in the URL
+         fragment of the magic-link redirect: they land in browser history and
+         in anything that logs URLs, and a slip in the redirect allow-list
+         hands over a live session rather than a code that still has to be
+         exchanged. PKCE sends a single-use ?code= instead, redeemable only by
+         the browser that began the sign-in.
+         Accepted trade-off: the code verifier lives in this origin's
+         localStorage, so a link opened in a DIFFERENT browser than it was
+         requested from can no longer complete. */
+      supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: { flowType: 'pkce' }
+      });
     }
   } catch (e) { supa = null; /* any failure → stay in local-only mode */ }
 }
@@ -1065,7 +1077,13 @@ async function sendMagicLink(email){
   if (!supa) return;
   state.authBusy = true; state.authMsg = '';
   try {
-    const { error } = await supa.auth.signInWithOtp({ email, options: { emailRedirectTo: location.href } });
+    /* origin + pathname, never location.href: href carries whatever query
+       string the tab happens to hold, and Supabase matches this value against
+       the project's redirect allow-list. A non-match does not error — it
+       silently falls back to the Site URL — so a variable value here makes a
+       tightened allow-list misbehave quietly instead of failing visibly. */
+    const redirectTo = location.origin + location.pathname;
+    const { error } = await supa.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } });
     if (error){
       state.authMsg = 'Couldn’t send link: ' + error.message;
     } else {
