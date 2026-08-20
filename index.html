@@ -924,6 +924,16 @@ function repairShapes(){
   if (!state.meals || typeof state.meals !== 'object') state.meals = freshMeals();
   for (const m of Object.keys(freshMeals())) if (!Array.isArray(state.meals[m])) state.meals[m] = [];
   for (const k of ['done','recents','favorites','customFoods']) if (!Array.isArray(state[k])) state[k] = [];
+  /* A custom food renders into the food list, the detail sheet and the meal
+     diary. Those sinks all escape now, so a hostile NAME is inert — but a blob
+     synced down from the cloud, or written before this check existed, can still
+     hold entries of the wrong SHAPE, which render as "undefined" or throw.
+     Drop anything that isn't a well-formed food rather than trusting it. */
+  state.customFoods = state.customFoods.filter(x =>
+    x && typeof x === 'object'
+    && typeof x.name === 'string' && x.name.trim() !== ''
+    && typeof x.srv  === 'string' && x.srv.trim()  !== ''
+    && ['calories','p','c','f'].every(k => Number.isFinite(x[k])));
   /* History predates completedAt, so entries saved before that change simply
      don't have one. Drop a completedAt that won't parse rather than inventing a
      date — an undated entry still counts toward career totals, it just can't be
@@ -2378,7 +2388,7 @@ function pageMenu(){
     ${accountChip()}
     <div style="min-height:${supa ? '58vh' : '62vh'};display:flex;flex-direction:column;justify-content:center">
       <div class="kicker rv">${pf ? 'Welcome back' : 'Fitness intelligence'}</div>
-      <h1 class="rv">${pf ? `Back in orbit,<br>${first}.` : 'Train inside<br>your own orbit.'}</h1>
+      <h1 class="rv">${pf ? `Back in orbit,<br>${escHtml(first)}.` : 'Train inside<br>your own orbit.'}</h1>
       <p class="lede rv">${pf
         ? `Your ${goalData().label.toLowerCase()} plan is live: ${state.plan.kcal} kcal a day, ${state.profile.days} sessions a week. Pick a path below.`
         : 'Pick a path below. Scroll to explore — the singularity turns with you. Start with Goal Analysis and the whole app reshapes itself around you.'}</p>
@@ -2425,7 +2435,7 @@ function pageAbout(){
         <span class="${chip(imp)}"  data-act="setUnits" data-id="imp">Imperial · lb / ft</span>
       </div>
       <div class="field"><label class="fl">Name</label>
-        <input class="inp" id="f-name" placeholder="e.g. Alex" value="${d.name || ''}"></div>
+        <input class="inp" id="f-name" placeholder="e.g. Alex" value="${escHtml(d.name || '')}"></div>
       <label class="fl">Body type (for the formula)</label>
       <div class="chiprow">
         <span class="${chip(d.sex==='m')}" data-act="wizSex" data-id="m">Male</span>
@@ -2581,7 +2591,7 @@ function pagePlanFull(){
     : `Hold this line for <b class="em">${p.horizonWeeks} weeks</b> and you're on track to ${projVerb} about <b class="em">${p.projChange} ${p.changeUnit}</b>.`;
 
   return `
-    <div class="kicker rv">Analysis complete · engineered for ${first}</div>
+    <div class="kicker rv">Analysis complete · engineered for ${escHtml(first)}</div>
     <h1 class="rv">${icon(g.icon, 34, { weight:1.5, cls:'em ico-em' })} Your ${g.label}<br>Blueprint</h1>
     <p class="lede rv">A complete system — fuel, macros, timeline and a balanced training week, all computed from your body and lifestyle.</p>
 
@@ -3128,12 +3138,30 @@ function toggleFav(f){
     ? state.favorites.filter(x => x.name !== f.name)
     : [f, ...state.favorites];
 }
+/* Free-text ceiling for a custom food's name and serving. Nothing legitimate
+   comes close; it exists so absurd input can't be stored at all. */
+const MAX_FOOD_TEXT = 80;
+
 function saveCustomFromForm(){
   const g = id => (current.querySelector('#'+id)||{}).value || '';
+  const fail = msg => { const e = current.querySelector('#cfErr'); if (e) e.textContent = msg; };
   const name = g('cfName').trim();
+  const srv  = g('cfSrv').trim();
   const cal = +g('cfCal');
-  if (!name || !cal){ const e = current.querySelector('#cfErr'); if(e) e.textContent = 'Name and calories are required.'; return; }
-  const food = { name, srv: g('cfSrv').trim() || '1 serving', calories: Math.round(cal),
+  if (!name || !cal){ fail('Name and calories are required.'); return; }
+  /* Defense in depth — NOT the fix. What makes these strings inert is that
+     every sink they reach now runs them through escHtml(); this gate just
+     keeps obviously hostile or absurd text out of storage in the first place,
+     so a sink added later without escaping has less to work with.
+     Both fields REJECT rather than truncate, and both say why: silently
+     altering what someone typed is its own kind of bug. */
+  if (name.length > MAX_FOOD_TEXT || srv.length > MAX_FOOD_TEXT){
+    fail(`Name and serving must be ${MAX_FOOD_TEXT} characters or fewer.`); return;
+  }
+  if (/[<>]/.test(name) || /[<>]/.test(srv)){
+    fail('Name and serving can’t contain < or >.'); return;
+  }
+  const food = { name, srv: srv || '1 serving', calories: Math.round(cal),
     p:+g('cfP')||0, c:+g('cfC')||0, f:+g('cfF')||0, cat:'Custom', custom:true };
   state.customFoods = [food, ...state.customFoods.filter(x=>x.name!==name)];
   state.foodView = 'browse'; state.foodQuery = ''; state.customDraftName = '';
@@ -3185,8 +3213,8 @@ function foodZone(){
           <div class="card" style="padding:10px 14px;margin-bottom:6px">
             <div class="row">
               <div style="flex:1;min-width:0">
-                <div style="font-size:13.5px;font-weight:600">${e.food.name}</div>
-                <div class="mut" style="font-size:11px;margin-top:1px">${fmtQty(e.qty)} × ${e.food.srv} · P ${eP(e)} · C ${eC(e)} · F ${eF(e)}</div>
+                <div style="font-size:13.5px;font-weight:600">${escHtml(e.food.name)}</div>
+                <div class="mut" style="font-size:11px;margin-top:1px">${fmtQty(e.qty)} × ${escHtml(e.food.srv)} · P ${eP(e)} · C ${eC(e)} · F ${eF(e)}</div>
               </div>
               <span style="display:flex;align-items:center;gap:11px">
                 <b style="font-size:13px">${eKcal(e)}</b>
@@ -3215,8 +3243,8 @@ function foodZone(){
     <div class="fitem">
       <span class="add" data-act="openFood" data-fname="${encodeURIComponent(f.name)}" data-plain>+</span>
       <div style="flex:1;min-width:0" data-act="openFood" data-fname="${encodeURIComponent(f.name)}">
-        <div style="font-weight:600;font-size:14px">${f.name}</div>
-        <div class="mut" style="font-size:11.5px;margin-top:2px">${f.srv} · ${f.calories} kcal · P ${f.p} · C ${f.c} · F ${f.f}${(q||state.foodView!=='browse')&&f.cat?` · ${f.cat}`:''}</div>
+        <div style="font-weight:600;font-size:14px">${escHtml(f.name)}</div>
+        <div class="mut" style="font-size:11.5px;margin-top:2px">${escHtml(f.srv)} · ${f.calories} kcal · P ${f.p} · C ${f.c} · F ${f.f}${(q||state.foodView!=='browse')&&f.cat?` · ${escHtml(f.cat)}`:''}</div>
       </div>
       <span class="fav ${isFav(f)?'on':''}" data-act="toggleFav" data-fname="${encodeURIComponent(f.name)}">${starIcon(isFav(f))}</span>
     </div>`;
@@ -3239,7 +3267,7 @@ function foodZone(){
     ${state.foodView==='browse' ? `
       <div class="search">
         <span class="mag">⌕</span>
-        <input id="foodSearch" placeholder="Search ${pool.length} foods…" value="${state.foodQuery.replace(/"/g,'&quot;')}" autocomplete="off">
+        <input id="foodSearch" placeholder="Search ${pool.length} foods…" value="${escHtml(state.foodQuery)}" autocomplete="off">
       </div>
       ${q ? '' : `<div class="tabs">${cats.map(c=>`
         <span class="tab ${state.foodCat===c?'on':''}" data-act="setFoodCat" data-cat="${encodeURIComponent(c)}">${c}</span>`).join('')}</div>`}
@@ -3299,8 +3327,8 @@ function foodZone(){
         <div class="sheet-grab"></div>
         <div class="row">
           <div style="min-width:0">
-            <div style="font-family:'Unbounded';font-weight:700;font-size:19px;line-height:1.2">${f.name}</div>
-            <div class="mut" style="font-size:12.5px;margin-top:3px">${f.srv} · ${f.cat||''}</div>
+            <div style="font-family:'Unbounded';font-weight:700;font-size:19px;line-height:1.2">${escHtml(f.name)}</div>
+            <div class="mut" style="font-size:12.5px;margin-top:3px">${escHtml(f.srv)} · ${escHtml(f.cat||'')}</div>
           </div>
           <span style="display:flex;align-items:center;flex-shrink:0">
             <span class="fav ${isFav(f)?'on':''}" data-act="toggleFav" data-fname="${encodeURIComponent(f.name)}">${starIcon(isFav(f), 22)}</span>
