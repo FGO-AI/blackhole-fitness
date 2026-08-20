@@ -31,6 +31,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://kfoifswvyjppywyeurrq.supabase.co">
+<link rel="preconnect" href="https://challenges.cloudflare.com">
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <!-- deferred: neither library is needed to parse or paint the first screen, and
      ~400KB of blocking JS in <head> was the whole first-paint budget. Deferred
@@ -39,6 +40,11 @@
      are guaranteed present by the time anything touches them. -->
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<!-- Turnstile, explicit render: the widget is mounted by hand after each page
+     build rather than by scanning the document, because the account page is
+     rebuilt from a template string every refresh. Deferred like the other two,
+     so window.turnstile is present by the time boot() runs. -->
+<script defer src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"></script>
 <style>
 :root{
   /* card sits over the animated shader; .85 keeps secondary text legible
@@ -325,13 +331,20 @@ h1{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(1.9rem,6vw
 /* ================= ACCOUNT SYNC CONFIG =================
    OPTIONAL. Fill these in from your Supabase project's Settings → API page to
    turn on cross-device account sync. Leave them as the placeholders and the
-   app runs exactly as before — guest mode, saved locally on this device only.
+   app runs exactly as before, in guest mode — which now persists nothing.
    Run supabase-schema.sql once in the Supabase SQL Editor first. */
 /* The key below is the PUBLISHABLE (anon) key — it is designed to ship in
    client code. Row Level Security is what protects the data. Never put the
    secret/service_role key here; it bypasses RLS. */
 const SUPABASE_URL = 'https://kfoifswvyjppywyeurrq.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_5grvc7xyGIAfk-hYOfaIlA_iavbyUNg';
+
+/* Cloudflare Turnstile site key. PUBLIC by design — it identifies which widget
+   to draw and authorises nothing on its own; the matching SECRET key is pasted
+   into Supabase (Authentication -> Attack Protection -> CAPTCHA) and never
+   appears in this file. Leave the placeholder and no widget renders; see
+   mountCaptcha(), which says so on screen rather than failing quietly. */
+const TURNSTILE_SITE_KEY = 'YOUR_TURNSTILE_SITE_KEY';
 
 /* Defensive init: null unless the config is real AND the CDN script loaded.
    `supa` being null is the single signal for "guest/local-only mode". */
@@ -890,11 +903,10 @@ const state = {
   /* ---- account sync (all transient, never persisted) ---- */
   session:null,                /* null (guest) or { id, email } once signed in */
   syncStatus:'local',          /* local | syncing | synced | error */
-  authBusy:false,              /* magic-link request in flight */
+  authBusy:false,              /* a signUp / signInWithPassword call is in flight */
   authMsg:'',                  /* sign-in form feedback text */
-  authSentTo:null,             /* email a link was just sent to → Account state B */
+  authMode:'signin',           /* signin | signup — one form, two modes */
   lastSyncedAt:null,           /* app_data.updated_at, for "last synced" */
-  resendAt:0,                  /* epoch ms when "Resend link" unlocks */
 };
 const ALL_FOODS = Object.entries(FOOD_DB).flatMap(([cat, items]) => items.map(f => ({...f, cat})));
 const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -939,6 +951,22 @@ function repairShapes(){
 
 /* ---- LOCAL layer: instant, offline-safe, unchanged behavior ---- */
 function saveLocal(){
+  /* Guests write nothing, ever. Before this gate every interaction persisted
+     the durable slice — weight, goal, food diary, workout history — to the
+     device of anyone who never signed in, and the app never said so. That is
+     what A-10 was: undisclosed local health data. Not writing it is a better
+     fix than disclosing it.
+     The READ side of loadState() is deliberately left alone. It does not need
+     a guard: if nothing is ever written for a guest there is nothing for it to
+     find, and a signed-in user's local cache — which is what makes boot
+     instant before the async cloud pull resolves — still works exactly as it
+     did. Gating the write is the whole change.
+     Consequence, by design and not a bug: a guest who reloads or goes offline
+     mid-session gets a clean slate. There is no local fallback for guests any
+     more. In-memory state already makes everything instant WITHIN a session,
+     so a guest-side write would buy back nothing except the cross-session
+     persistence being removed on purpose. */
+  if (!state.session) return;
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(durableSlice())); }
   catch (e) { /* storage disabled or full — stay in-memory */ }
 }
@@ -1035,7 +1063,7 @@ function clearSavedData(){
   }
 }
 
-/* ================= AUTH (passwordless magic link) ================= */
+/* ================= AUTH (email + password) ================= */
 const escHtml = s => String(s == null ? '' : s).replace(/[&<>"']/g,
   c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let pendingEmail = '';           /* keeps the typed email through the re-render */
@@ -1054,58 +1082,148 @@ function relTime(ts){
   return Math.floor(s/86400) + (Math.floor(s/86400) === 1 ? ' day ago' : ' days ago');
 }
 
-/* ---- resend cooldown: ticks the button in place, no full re-render ---- */
-const RESEND_SECS = 30;
-let resendTimer = null;
-const resendLeft = () => Math.max(0, Math.ceil((state.resendAt - Date.now()) / 1000));
-function startResendCooldown(){
-  state.resendAt = Date.now() + RESEND_SECS * 1000;
-  clearInterval(resendTimer);
-  resendTimer = setInterval(() => {
-    const left = resendLeft();
-    const btn = current && current.querySelector('#resendBtn');
-    if (left <= 0){
-      clearInterval(resendTimer); resendTimer = null;
-      if (btn){ btn.disabled = false; btn.textContent = 'Resend link'; }
-      return;
-    }
-    if (btn){ btn.disabled = true; btn.textContent = `Resend in ${left}s`; }
-  }, 1000);
+/* ---- password rules ----
+   A courtesy check so a too-short password fails instantly instead of after a
+   round trip. Supabase enforces its own minimum server-side (Authentication ->
+   Settings -> Password, which defaults to 6). Keep the two numbers in step or
+   the server will reject something this form happily accepted. */
+const MIN_PASSWORD = 8;
+
+/* ---- CAPTCHA (Turnstile) ---- */
+const captchaConfigured = () =>
+  !!TURNSTILE_SITE_KEY && !TURNSTILE_SITE_KEY.startsWith('YOUR_');
+let captchaToken  = '';      /* single-use; spent on every submit attempt */
+let captchaWidget = null;    /* Turnstile's handle for the current widget */
+let captchaLive   = false;   /* a widget is actually rendered on screen now */
+
+function resetCaptcha(){
+  captchaToken = '';
+  try { if (captchaWidget !== null && window.turnstile) window.turnstile.reset(captchaWidget); }
+  catch (e) { /* widget already gone with the last render */ }
 }
 
-async function sendMagicLink(email){
+/* Mounted by hand from bindAccountInput() after every page build, because
+   refresh() replaces the account page's innerHTML and takes the old widget
+   with it. A fresh host element has no _cap flag, so each rebuild re-renders. */
+function mountCaptcha(page){
+  const host = page.querySelector('#authCaptcha');
+  if (!host) { captchaLive = false; return; }
+  if (!captchaConfigured()){
+    /* No site key. Sign-in still works UNLESS CAPTCHA protection is switched
+       on in the Supabase dashboard, in which case the server rejects every
+       attempt — so say it out loud here instead of failing mysteriously. */
+    captchaLive = false;
+    host.innerHTML = '<div class="mut" style="font-size:11.5px;line-height:1.55">'
+      + 'CAPTCHA not configured — set TURNSTILE_SITE_KEY to switch it on.</div>';
+    return;
+  }
+  if (host._cap) return;
+  host._cap = true;
+  captchaToken = ''; captchaLive = false;
+  if (!window.turnstile){
+    /* script blocked or still loading: do NOT hard-block the form, or a CDN
+       outage locks everyone out. The server-side check is the real gate. */
+    host.innerHTML = '<div class="mut" style="font-size:11.5px;line-height:1.55">'
+      + 'Couldn’t load the human check — you can still try to continue.</div>';
+    return;
+  }
+  host.innerHTML = '';
+  try {
+    captchaWidget = window.turnstile.render(host, {
+      sitekey: TURNSTILE_SITE_KEY,
+      theme: 'dark',
+      callback: (token) => { captchaToken = token; syncAuthButton(page); },
+      'expired-callback': () => { captchaToken = ''; syncAuthButton(page); },
+      'error-callback':   () => { captchaToken = ''; syncAuthButton(page); },
+    });
+    captchaLive = true;
+  } catch (e) { captchaWidget = null; captchaLive = false; }
+}
+
+/* Supabase speaks in API strings. Translate to something a person can act on,
+   and ONLY ever from error.message — never the error object itself, which can
+   carry the request body, and the request body is the password just typed. */
+function authErrorText(msg){
+  const raw = String(msg || '');
+  const m = raw.toLowerCase();
+  if (m.includes('invalid login credentials'))
+    return 'That email and password don’t match an account.';
+  if (m.includes('email not confirmed'))
+    return 'This account still needs email confirmation. Turn “Confirm email” off in Supabase, or confirm it first.';
+  if (m.includes('already registered') || m.includes('already exists') || m.includes('already been registered'))
+    return 'That email already has an account — switch to Sign in.';
+  if (m.includes('captcha'))
+    return 'Couldn’t verify you’re human. Try the check again.';
+  if (m.includes('rate limit') || m.includes('too many'))
+    return 'Too many attempts. Wait a minute, then try again.';
+  if (m.includes('password'))
+    return 'That password was rejected: ' + raw;
+  if (m.includes('failed to fetch') || m.includes('network'))
+    return 'Couldn’t reach the server — check your connection.';
+  return raw || 'Something went wrong. Try again.';
+}
+
+/* NOT BUILT YET, DELIBERATELY: there is no "forgot password" flow. Someone who
+   forgets their password is stuck and has to be reset from the Supabase
+   dashboard. That is a known, accepted gap under the "keep it minimal" brief —
+   do not read its absence as finished work. Adding one reintroduces an emailed
+   redirect back into this app, at which point the PKCE flow and the redirect
+   URL allow-list (A-04 / A-09) start mattering again. */
+
+/* The two calls below are the ONLY places in this app that ever see a
+   password. It is read straight off the input at submit time, handed to
+   Supabase, and dropped. It is never copied into `state`, never mirrored into
+   a module variable the way pendingEmail is, never written to localStorage,
+   and never logged. Supabase hashes and stores it server-side; this app has no
+   credential storage, hashing or verification of its own and must never grow
+   any. */
+async function submitAuth(email, password){
   if (!supa) return;
   state.authBusy = true; state.authMsg = '';
+  const signingUp = state.authMode === 'signup';
   try {
-    /* origin + pathname, never location.href: href carries whatever query
-       string the tab happens to hold, and Supabase matches this value against
-       the project's redirect allow-list. A non-match does not error — it
-       silently falls back to the Site URL — so a variable value here makes a
-       tightened allow-list misbehave quietly instead of failing visibly. */
-    const redirectTo = location.origin + location.pathname;
-    const { error } = await supa.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } });
-    if (error){
-      state.authMsg = 'Couldn’t send link: ' + error.message;
+    const options = captchaToken ? { captchaToken } : {};
+    const res = signingUp
+      ? await supa.auth.signUp({ email, password, options })
+      : await supa.auth.signInWithPassword({ email, password, options });
+    if (res.error){
+      state.authMsg = authErrorText(res.error.message);   /* .message only */
+      resetCaptcha();                  /* the token was spent on that attempt */
+    } else if (signingUp && res.data && !res.data.session){
+      /* signUp succeeded but returned no session: "Confirm email" is still on
+         in the dashboard. Without this branch the button would just stop
+         spinning and nothing would happen. */
+      state.authMsg = 'Account created, but email confirmation is switched on in Supabase — check your inbox, or turn “Confirm email” off.';
+      resetCaptcha();
     } else {
-      state.authMsg = '';
-      state.authSentTo = email;      /* → Account state B */
-      startResendCooldown();
+      state.authMsg = '';              /* onAuthStateChange -> applySession */
     }
-  } catch (e) { state.authMsg = 'Couldn’t send link — check your connection and try again.'; }
+  } catch (e) {
+    /* e.message only, for the same reason as above — never the object */
+    state.authMsg = 'Couldn’t reach the server — check your connection and try again.';
+    resetCaptcha();
+  }
   state.authBusy = false;
 }
 async function signOutAccount(){
   if (!supa) return;
   try { await supa.auth.signOut(); } catch (e) {}
   state.session = null; state.syncStatus = 'local'; state.authMsg = '';
-  state.authSentTo = null; state.lastSyncedAt = null; cloudLoadedFor = null;
+  state.lastSyncedAt = null; cloudLoadedFor = null;
   lastPushedJSON = null;               /* next sign-in may be a different account */
+  resetCaptcha();
+  /* Wipe the local cache on the way out — session nulled first, so nothing can
+     race in and rewrite it. This is what actually closes A-10: whoever picks up
+     this device next, as a guest, must not be able to read the previous user's
+     plan, food diary or workout history straight out of localStorage. Their
+     data is not lost — it lives in their account and comes back on sign-in. */
+  try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
 }
 async function applySession(s, onChange){
   state.session = { id: s.user.id, email: s.user.email };
-  /* the link worked — drop the "check your email" state and any stale error */
-  state.authSentTo = null; state.authMsg = ''; state.authBusy = false;
-  pendingEmail = '';
+  /* signed in — drop any stale form error and the typed email */
+  state.authMsg = ''; state.authBusy = false;
+  pendingEmail = ''; resetCaptcha();
   if (cloudLoadedFor !== s.user.id){         /* pull cloud once per session */
     cloudLoadedFor = s.user.id;
     await loadCloudState();
@@ -1118,7 +1236,7 @@ function watchAuth(onChange){
   supa.auth.getSession().then(({ data }) => {
     if (data && data.session && data.session.user) applySession(data.session, onChange);
   }).catch(() => {});
-  /* catch a magic-link completing in this tab, and sign-outs */
+  /* catch a sign-in completing in this tab, and sign-outs */
   supa.auth.onAuthStateChange((event, s) => {
     if (s && s.user) applySession(s, onChange);
     else if (event === 'SIGNED_OUT'){
@@ -1652,25 +1770,48 @@ function runAction(el, page){
         return;
       }
       /* ---- account sync ---- */
-      if (a.act === 'sendMagicLink' || a.act === 'resendLink'){
-        const inp = current.querySelector('#authEmail');
-        const email = (a.act === 'resendLink' ? state.authSentTo
-                                              : ((inp && inp.value) || pendingEmail)).trim();
-        if (!validEmail(email)){
-          state.authMsg = email ? 'That doesn’t look like a valid email.' : 'Enter your email first.';
-          refresh(); return;
+      if (a.act === 'authMode'){
+        if (a.mode !== state.authMode){
+          state.authMode = a.mode;
+          state.authMsg = '';
+          /* full refresh — the confirm-password field appears or disappears.
+             Typed passwords are not carried across: they only ever live in the
+             DOM, and this rebuilds it. */
+          refresh();
         }
-        if (a.act === 'resendLink' && resendLeft() > 0) return;   /* cooldown guard */
-        pendingEmail = email;
-        const p = sendMagicLink(email);   /* sets authBusy synchronously, then awaits */
-        refresh();                        /* show "Sending…" immediately */
-        p.then(refresh);                  /* then state B, or the inline error */
         return;
       }
-      if (a.act === 'differentEmail'){
-        state.authSentTo = null; state.authMsg = ''; pendingEmail = '';
-        clearInterval(resendTimer); resendTimer = null; state.resendAt = 0;
-        refresh(); return;
+      if (a.act === 'authSubmit'){
+        const emailEl = current.querySelector('#authEmail');
+        const passEl  = current.querySelector('#authPass');
+        const pass2El = current.querySelector('#authPass2');
+        const email = String((emailEl && emailEl.value) || pendingEmail || '').trim();
+        const pw    = (passEl  && passEl.value)  || '';
+        const pw2   = (pass2El && pass2El.value) || '';
+        /* Client-side failures update the message in place instead of calling
+           refresh(), so a typo in the email doesn't wipe the password fields
+           (which carry no value= attribute and cannot be re-rendered). */
+        if (!validEmail(email)){
+          showAuthErr(email ? 'That doesn’t look like a valid email.' : 'Enter your email first.');
+          return;
+        }
+        if (pw.length < MIN_PASSWORD){
+          showAuthErr(`Password must be at least ${MIN_PASSWORD} characters.`);
+          return;
+        }
+        if (state.authMode === 'signup' && pw !== pw2){
+          showAuthErr('Those passwords don’t match.');
+          return;
+        }
+        if (captchaLive && !captchaToken){
+          showAuthErr('Complete the human check first.');
+          return;
+        }
+        pendingEmail = email;
+        const p = submitAuth(email, pw);  /* sets authBusy synchronously */
+        refresh();                        /* show "Signing in…" immediately */
+        p.then(refresh);                  /* then signed-in, or the inline error */
+        return;
       }
       if (a.act === 'continueGuest'){ goBack(); return; }
       if (a.act === 'signOut'){ signOutAccount().then(() => resetToMenu()); return; }
@@ -2168,36 +2309,13 @@ function pageAccount(){
       </p>`;
   }
 
-  /* ---- State B: link sent, waiting ---- */
-  if (state.authSentTo){
-    const left = resendLeft();
-    return `
-      <div class="kicker rv">Almost there</div>
-      <h1 class="rv">Check your<br>email.</h1>
-      <div class="card rv" style="margin-top:26px;text-align:center;padding:26px 20px">
-        <div class="sent-mark">${icon('mail', 26, { label:'Email sent' })}</div>
-        <div style="font-size:14.5px;line-height:1.6">We sent a link to<br><b class="em">${escHtml(state.authSentTo)}</b></div>
-        <div class="mut" style="font-size:12.5px;margin-top:14px;line-height:1.6">It expires soon and only works once — request a new one if it's been a while.</div>
-        ${state.authMsg ? `<div style="font-size:12.5px;margin-top:14px;color:var(--danger)">${escHtml(state.authMsg)}</div>` : ''}
-      </div>
-      <div class="rv" style="margin-top:18px">
-        <button class="btn ghost" id="resendBtn" data-act="resendLink" ${left > 0 || state.authBusy ? 'disabled' : ''}>${
-          state.authBusy ? 'Sending…' : left > 0 ? `Resend in ${left}s` : 'Resend link'}</button>
-      </div>
-      <p class="rv" style="text-align:center;margin:20px 0 10px">
-        <button class="linkbtn" style="color:var(--mut)" data-act="differentEmail">Use a different email</button>
-      </p>
-      <p class="rv" style="text-align:center;margin:0 0 24px">
-        <button class="linkbtn" style="color:var(--mut)" data-act="continueGuest">Continue as guest</button>
-      </p>`;
-  }
-
-  /* ---- State A: guest, nothing sent yet ---- */
-  const ready = validEmail(pendingEmail);
+  /* ---- State B: signed out — one form, two modes ---- */
+  const signingUp = state.authMode === 'signup';
+  const pwAuto = signingUp ? 'new-password' : 'current-password';
   return `
     <div class="kicker rv">Sync your progress</div>
-    <h1 class="rv">Sign in to<br>carry it with you.</h1>
-    <p class="lede rv">Your plan, food log and workout history follow you to any device you sign into. No password to remember — just your email.</p>
+    <h1 class="rv">${signingUp ? 'Create your<br>account.' : 'Sign in to<br>carry it with you.'}</h1>
+    <p class="lede rv">Your plan, food log and workout history follow you to any device you sign into.</p>
 
     <div class="card rv" style="margin-top:26px">
       <div class="acct-feat">${icon('check', 18, { cls:'em' })}<span>Your personalized plan</span></div>
@@ -2205,21 +2323,39 @@ function pageAccount(){
       <div class="acct-feat">${icon('check', 18, { cls:'em' })}<span>Your workout history</span></div>
     </div>
 
-    <div class="rv" style="margin-top:22px">
+    <div class="seg rv" style="margin-top:22px">
+      <button class="${signingUp ? '' : 'on'}" data-act="authMode" data-mode="signin">Sign in</button>
+      <button class="${signingUp ? 'on' : ''}" data-act="authMode" data-mode="signup">Create account</button>
+    </div>
+
+    <div class="rv">
       <label class="fl" for="authEmail">Email address</label>
       <input id="authEmail" class="inp" type="email" inputmode="email" autocomplete="email"
              placeholder="you@email.com" value="${escHtml(pendingEmail)}" ${state.authBusy ? 'disabled' : ''}>
-      <!-- CAPTCHA widget mounts here when that hardening work lands -->
-      <div id="authCaptcha"></div>
+
+      <label class="fl" for="authPass" style="margin-top:14px">Password</label>
+      <input id="authPass" class="inp" type="password" autocomplete="${pwAuto}"
+             placeholder="At least ${MIN_PASSWORD} characters" ${state.authBusy ? 'disabled' : ''}>
+      ${signingUp ? `
+      <label class="fl" for="authPass2" style="margin-top:14px">Confirm password</label>
+      <input id="authPass2" class="inp" type="password" autocomplete="new-password"
+             placeholder="Type it again" ${state.authBusy ? 'disabled' : ''}>` : ''}
+
+      <div id="authCaptcha" style="margin-top:14px"></div>
       <div id="authErr" class="mut" style="font-size:12.5px;min-height:17px;margin:8px 0 4px;color:${state.authMsg ? 'var(--danger)' : 'var(--mut)'}">${escHtml(state.authMsg)}</div>
-      <button class="btn" id="sendBtn" data-act="sendMagicLink" ${state.authBusy || !ready ? 'disabled' : ''}>${state.authBusy ? 'Sending…' : 'Send sign-in link'}</button>
+      <!-- always rendered disabled: the password box is necessarily empty at
+           build time, so the form can never be ready yet. bindAccountInput()
+           enables it as soon as the fields validate. -->
+      <button class="btn" id="authSubmit" data-act="authSubmit" disabled>${
+        state.authBusy ? (signingUp ? 'Creating…' : 'Signing in…')
+                       : (signingUp ? 'Create account' : 'Sign in')}</button>
     </div>
 
     <p class="rv" style="text-align:center;margin:20px 0 10px">
       <button class="linkbtn" style="color:var(--mut)" data-act="continueGuest">Continue as guest</button>
     </p>
     <p class="mut rv" style="text-align:center;font-size:11.5px;line-height:1.6;margin:0 0 24px">
-      Not signing in is fine — everything still saves on this device.
+      As a guest nothing is saved — your plan and log clear when you leave.
     </p>`;
 }
 
@@ -3239,27 +3375,62 @@ function bindFoodSearch(page){
     });
   }
 }
-/* Mirror the typed email into pendingEmail so a background sync re-render
+/* Write the form's feedback line straight into the DOM. Used for client-side
+   validation so a bad email doesn't cost the user their typed password — the
+   password inputs carry no value= attribute (deliberately: a password must
+   never be echoed back into markup), so any refresh() empties them. */
+function showAuthErr(msg){
+  state.authMsg = msg;
+  const err = current && current.querySelector('#authErr');
+  if (!err) { refresh(); return; }
+  err.textContent = msg;
+  err.style.color = 'var(--danger)';
+}
+
+/* Is the form submittable right now? Reads the password out of the DOM and
+   drops it on return — nothing here retains it. */
+function authFormReady(page){
+  if (!validEmail(pendingEmail)) return false;
+  const pw  = page.querySelector('#authPass');
+  const pw2 = page.querySelector('#authPass2');
+  const v = (pw && pw.value) || '';
+  if (v.length < MIN_PASSWORD) return false;
+  if (state.authMode === 'signup' && v !== ((pw2 && pw2.value) || '')) return false;
+  if (captchaLive && !captchaToken) return false;
+  return true;
+}
+function syncAuthButton(page){
+  const btn = page && page.querySelector('#authSubmit');
+  if (btn) btn.disabled = state.authBusy || !authFormReady(page);
+}
+
+/* Mirror the typed EMAIL into pendingEmail so a background sync re-render
    can't wipe it, and toggle the CTA live without re-rendering (which would
-   move the caret). */
+   move the caret). Passwords are pointedly NOT mirrored anywhere — they live
+   in the input element and nowhere else until submit hands them to Supabase. */
 function bindAccountInput(page){
-  const input = page.querySelector('#authEmail');
-  if (input && !input._bound){
-    input._bound = true;
-    input.addEventListener('input', e => {
-      pendingEmail = e.target.value;
-      const btn = page.querySelector('#sendBtn');
-      if (btn) btn.disabled = state.authBusy || !validEmail(pendingEmail);
+  mountCaptcha(page);
+  const email = page.querySelector('#authEmail');
+  const fields = [email, page.querySelector('#authPass'), page.querySelector('#authPass2')]
+                   .filter(Boolean);
+  if (!fields.length) return;
+  for (const el of fields){
+    if (el._bound) continue;
+    el._bound = true;
+    el.addEventListener('input', e => {
+      if (e.target === email) pendingEmail = e.target.value;
+      syncAuthButton(page);
       const err = page.querySelector('#authErr');
       if (err && state.authMsg){ state.authMsg = ''; err.textContent = ''; }
     });
-    input.addEventListener('keydown', e => {
+    el.addEventListener('keydown', e => {
       if (e.key === 'Enter'){
-        const btn = page.querySelector('#sendBtn');
+        const btn = page.querySelector('#authSubmit');
         if (btn && !btn.disabled) btn.click();
       }
     });
   }
+  syncAuthButton(page);
 }
 
 /* ================= ACTIVITY PERIODS =================

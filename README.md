@@ -24,7 +24,7 @@ python3 -m http.server 8000
 
 ## Account sync (optional)
 
-The app works fully offline as a guest, saving to `localStorage`. Signing in adds cross-device sync on top. To enable it on your own deployment:
+Sign-in is **email + password**. An account is what makes the app remember anything: as a guest the app runs fully but persists nothing — reload and you start clean. To enable accounts on your own deployment:
 
 1. Create a Supabase project.
 2. Run [`supabase-schema.sql`](supabase-schema.sql) once in **SQL Editor**. It creates the `app_data` table (one JSONB row per user) and the Row Level Security policies that scope every read and write to `auth.uid()`.
@@ -36,9 +36,13 @@ The app works fully offline as a guest, saving to `localStorage`. Signing in add
    ```
 
    Use the **publishable (anon)** key — it is designed to ship in client code, and RLS is what protects the data. Never put the secret/`service_role` key here; it bypasses RLS entirely.
-4. Add your deployed URL to **Authentication → URL Configuration → Redirect URLs**, or the magic link will refuse to return to your app.
+4. Under **Authentication → Settings → Email**, turn **Confirm email** off — otherwise `signUp` returns no session and new accounts are stuck waiting on a verification mail the app has no flow for.
+5. Under **Authentication → Settings → Password**, set the minimum length to **8** so it matches `MIN_PASSWORD` in `index.html`. Supabase defaults to 6; leaving them out of step means the form accepts passwords the server then rejects.
+6. *(recommended)* Turn on CAPTCHA. Create a [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) site, paste the **secret** key into **Authentication → Attack Protection → CAPTCHA**, and put the **site** key into `TURNSTILE_SITE_KEY` in `index.html`. Both halves are required — the widget only renders once the site key is set, and Supabase only enforces it once the secret is set.
 
 Leave the constants at their `YOUR_…` placeholders and the app stays in guest mode — `supa` is `null` and every sync path is skipped.
+
+**Not built yet:** there is no password-reset flow. A user who forgets their password has to be reset from the Supabase dashboard. Adding one reintroduces an emailed redirect back into the app, which is when the redirect URL allow-list starts mattering again.
 
 ## Deploying with GitHub Pages
 
@@ -72,7 +76,8 @@ Plain HTML, CSS, and JavaScript in one file. The background uses [Three.js](http
 
 ## Notes
 
-- Your plan, food log, favorites and workout history persist to `localStorage` and survive a refresh. Signing in mirrors that same data to your Supabase row, so it follows you across devices; "Clear my data" removes both copies.
-- Guest data is stored unencrypted in `localStorage` on the device — worth knowing on a shared machine.
+- **Guests persist nothing.** Your plan, food log and workout history live in memory for the session and are gone on reload. That is deliberate: it means the app never leaves health data on a device belonging to someone who never asked it to.
+- **Signing in is what makes data durable.** A signed-in user's data is written to their Supabase row and mirrored to a `localStorage` cache so the app boots instantly before the cloud pull resolves. It follows them to any device they sign into; "Clear my data" removes both copies.
+- **Signing out wipes the local cache**, so the next person to use the device as a guest cannot read the previous user's data out of storage. Nothing is lost — it is still in the account.
 - The background adapts its render quality to measured frame time across four tiers, and honours `prefers-reduced-motion` by rendering a single static frame.
 - The black hole is a real-time approximation designed for phones and laptops, not a physically exact render.
