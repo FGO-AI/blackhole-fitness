@@ -70,6 +70,35 @@ But it is now defense-in-depth for those secondary assets, not the app's only pr
 
 One transition note: a new `sw.js` only takes over after the browser has downloaded it, so the *first* load after any service-worker change still runs the previous worker's logic. The load after that gets the new behaviour.
 
+## Tests
+
+[`tests/`](tests/) holds one plain Node script per area, each of which reads the real `index.html` (or `sw.js`), extracts the inline script, and drives the actual functions under a stubbed DOM. No framework, no `package.json`; Node is the only requirement.
+
+```sh
+node tests/run.js            # everything, with a per-file table and a total
+node tests/run.js xss auth   # just the files whose names contain these
+node tests/xss.test.js       # any single file on its own
+```
+
+Every file prints each thing it checked and exits non-zero on any failure; the runner fails if any file does.
+
+| File | Covers |
+|---|---|
+| `xss.test.js` | The stored-XSS canary at every render surface, the input gate, load-path shape validation |
+| `auth.test.js` | Email+password wiring, where a password does and does not end up, guests persisting nothing |
+| `service-worker.test.js` | Real fetch events through the real `sw.js`: network-first documents, cache-first assets, offline, activate |
+| `boot-order.test.js` | The deferred-script load order, and that nothing touches a CDN library before it exists |
+| `activity-log.test.js` | Day/week/month/career bucketing on fixed calendar dates, DST and midnight edges |
+| `coaching.test.js` | Weigh-in smoothing, the adaptive-expenditure guardrails, net calories, nutrition stats, gram macros |
+| `state-and-plan.test.js` | Persistence round-trips, malformed-blob recovery, `computePlan` regression |
+| `workout-customization.test.js` | Every dataset set-line parses, swap/reset round-trips, weekday remapping |
+| `render-pages.test.js` | Detail, weekday and plan pages render with balanced markup and no leaked `undefined` |
+| `smoke.test.js` | Every pre-existing page renders in its main states; persistence and auth invariants |
+
+**What green does and does not mean.** The suite proves the *logic* is correct. It does not prove the deployed site is running it — and in this project that gap has bitten more than once. The DOM, WebGL, supabase-js and the service-worker runtime are all mocked, so an assertion that a value reached a mock is proof of wiring, not of behaviour, and the labels say so. After a deploy, the checks that actually answer "is it live and correct" are the ones under [Deploying with GitHub Pages](#deploying-with-github-pages): confirm Pages is serving `main`, confirm the cache key in `sw.js` was bumped when secondary assets changed, and fetch the live page and compare it against `HEAD` rather than trusting the push.
+
+Any date-sensitive test freezes the clock at Wed 17 Jun 2026 and uses hand-computed expectations, so nothing depends on the day it is run. Any future task that builds a verification harness commits it to `tests/` **as part of that same task** — see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Tech
 
 Plain HTML, CSS, and JavaScript in one file. The background uses [Three.js](https://threejs.org/) (loaded from a CDN) to run a custom GLSL fragment shader. Account sync uses [supabase-js](https://supabase.com/docs/reference/javascript) (also from a CDN). Everything else is vanilla — no framework, no bundler.
