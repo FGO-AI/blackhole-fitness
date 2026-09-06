@@ -168,6 +168,13 @@ h1{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(1.9rem,6vw
 .trend.up{color:var(--ember)}
 .trend.down{color:var(--mut)}
 .trend.flat{color:var(--mut);opacity:.65}
+/* weight sparkline: the line is the smoothed trend, the dots are raw readings.
+   preserveAspectRatio=none stretches the geometry, so the strokes are made
+   non-scaling and each dot is a zero-length round-capped stroke — a real dot
+   at any width rather than an ellipse. */
+.spark{width:100%;height:56px;display:block;margin:4px 0 2px;overflow:visible}
+.spark polyline{fill:none;stroke:var(--ember);stroke-width:2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
+.spark .raw{fill:none;stroke:var(--mut);stroke-width:4.5;stroke-linecap:round;vector-effect:non-scaling-stroke;opacity:.6}
 .exnum{width:28px;height:28px;border-radius:8px;background:var(--ember-dim);border:1px solid var(--ember-mid);display:flex;align-items:center;justify-content:center;color:var(--ember);font-size:13px;font-weight:700;flex-shrink:0}
 
 /* ============ ANALYSIS WIZARD ============ */
@@ -890,6 +897,15 @@ const state = {
      One mechanism covers both cases from the UI — a slot can have its
      exercise swapped, its sets/reps edited, or both. */
   workoutOverrides:{},
+  /* ---- coaching, durable ---- */
+  weighIns:[],                 /* [{date:'YYYY-MM-DD', kg}] one per day, ascending; kg is canonical */
+  mealsDate:null,              /* the local calendar day state.meals belongs to; null on legacy blobs */
+  intakeLog:[],                /* completed days: [{date, kcal, p, c, f, n}] ascending */
+  adaptive:{ enabled:true, tdee:null, updatedAt:null, lastChange:null },
+  prefs:{ netCalories:false, weighDismissed:null, macros:null },
+  /* ---- coaching, transient ---- */
+  nutPeriod:'week',            /* Nutrition page bucket */
+  macroEditing:false,          /* gram editor open on the plan page */
   exSheet:null,                /* exercise swap / sets-reps sheet, transient */
   daysEditing:false,           /* weekday picker opened from the plan, not the wizard */
   /* Activity Log bucket. Defaults to career so the page opens showing the full
@@ -916,7 +932,8 @@ const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
    text, active tab). Save runs after every interaction; load merges on boot
    and can never throw, so corrupt or missing storage just yields fresh state. */
 const SAVE_KEY = 'bhf.state.v1';
-const DURABLE  = ['goal','profile','plan','done','meals','recents','favorites','customFoods','workoutOverrides'];
+const DURABLE  = ['goal','profile','plan','done','meals','recents','favorites','customFoods','workoutOverrides',
+                  'weighIns','mealsDate','intakeLog','adaptive','prefs'];
 const freshMeals = () => ({ Breakfast:[], Lunch:[], Dinner:[], Snack:[] });
 
 function durableSlice(){ const s = {}; for (const k of DURABLE) s[k] = state[k]; return s; }
@@ -945,6 +962,35 @@ function repairShapes(){
   /* map-of-maps, not an array — an older blob won't have it at all */
   if (!state.workoutOverrides || typeof state.workoutOverrides !== 'object'
       || Array.isArray(state.workoutOverrides)) state.workoutOverrides = {};
+  /* ---- coaching state. All of it feeds arithmetic, so a malformed entry is
+     not just a render glitch: a string where a number should be turns an
+     expenditure estimate into NaN. Everything is coerced to a known shape. ---- */
+  const isDay = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const byDate = (arr, ok) => {          /* well-formed entries, one per date (last wins), ascending */
+    const m = new Map();
+    for (const e of (Array.isArray(arr) ? arr : [])) if (e && typeof e === 'object' && isDay(e.date) && ok(e)) m.set(e.date, e);
+    return [...m.values()].sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  };
+  state.weighIns  = byDate(state.weighIns,  w => Number.isFinite(w.kg) && w.kg > 20 && w.kg < 400);
+  state.intakeLog = byDate(state.intakeLog, e => ['kcal','p','c','f','n'].every(k => Number.isFinite(e[k]) && e[k] >= 0));
+  if (!isDay(state.mealsDate)) state.mealsDate = null;
+  const ad = (state.adaptive && typeof state.adaptive === 'object' && !Array.isArray(state.adaptive)) ? state.adaptive : {};
+  const lc = ad.lastChange;
+  state.adaptive = {
+    enabled:    ad.enabled !== false,
+    tdee:       Number.isFinite(ad.tdee) ? ad.tdee : null,
+    updatedAt:  isDay(ad.updatedAt) ? ad.updatedAt : null,
+    lastChange: (lc && typeof lc === 'object' && Number.isFinite(lc.from) && Number.isFinite(lc.to) && isDay(lc.at))
+      ? { from:lc.from, to:lc.to, at:lc.at, reason: typeof lc.reason === 'string' ? lc.reason : '' } : null,
+  };
+  const pr = (state.prefs && typeof state.prefs === 'object' && !Array.isArray(state.prefs)) ? state.prefs : {};
+  const mm = pr.macros;
+  state.prefs = {
+    netCalories:    pr.netCalories === true,
+    weighDismissed: isDay(pr.weighDismissed) ? pr.weighDismissed : null,
+    macros: (mm && typeof mm === 'object' && ['protein','carbs','fat'].every(k => Number.isFinite(mm[k]) && mm[k] >= 0))
+      ? { protein:mm.protein, carbs:mm.carbs, fat:mm.fat } : null,
+  };
   /* profile/plan/goal are read unguarded by pageMenu (pf.name.trim(),
      goalData().icon), so a malformed blob from an old save or a synced row
      would throw inside mountPage and leave a blank stage. All three have
@@ -1041,6 +1087,8 @@ async function loadCloudState(){
       saveLocal();                       /* mirror cloud down to the local cache */
       lastPushedJSON = JSON.stringify(durableSlice());  /* in sync — don't re-upload it */
       state.syncStatus = 'synced';
+      /* a diary that was "today" on another device may be yesterday here */
+      if (coachTick()) saveState();
     } else {
       /* empty/absent cloud row on first sign-in: keep local guest data and
          upload it, so it becomes the baseline instead of being wiped out */
@@ -1057,6 +1105,10 @@ function resetState(){
   state.done = []; state.meals = freshMeals();
   state.recents = []; state.favorites = []; state.customFoods = [];
   state.workoutOverrides = {};
+  state.weighIns = []; state.intakeLog = []; state.mealsDate = null;
+  state.adaptive = { enabled:true, tdee:null, updatedAt:null, lastChange:null };
+  state.prefs = { netCalories:false, weighDismissed:null, macros:null };
+  state.nutPeriod = 'week'; state.macroEditing = false;
   state.draft = {}; state.sheet = null; state.exSheet = null;
   state.foodCat = 'All'; state.foodQuery = ''; state.activeMeal = 'Breakfast'; state.foodView = 'browse';
   state.logPeriod = 'career';
@@ -1703,6 +1755,7 @@ function mountPage(entry, dir, takeFocus){
   bindActions(page);
   bindFoodSearch(page);
   bindAccountInput(page);
+  bindCoachInputs(page);
 
   const old = current;
   current = page;
@@ -1757,6 +1810,7 @@ function refresh(){
   bindActions(current);
   bindFoodSearch(current);        /* keep in step with mountPage — all three rebind */
   bindAccountInput(current);      /* the rebuilt input needs rebinding */
+  bindCoachInputs(current);
 }
 
 /* ================= ACTIONS ================= */
@@ -1870,6 +1924,28 @@ function runAction(el, page){
         return;
       }
       if (a.act === 'setLogPeriod'){ state.logPeriod = a.p; refresh(); return; }
+
+      /* ---- coaching ---- */
+      if (a.act === 'setNutPeriod'){ state.nutPeriod = a.p; refresh(); return; }
+      if (a.act === 'logWeight'){
+        const inp = current.querySelector('#wtIn'), err = current.querySelector('#wtErr');
+        coachTick();                     /* a tab left open past midnight rolls first */
+        if (!logWeight(inp && inp.value)){ if (err) err.textContent = `Enter a weight in ${weightUnit()}.`; return; }
+        recalibrate();                   /* this reading may be the one that completes the window */
+        saveState(); refresh(); return;
+      }
+      if (a.act === 'dismissWeigh'){ state.prefs.weighDismissed = todayIso(); saveState(); refresh(); return; }
+      if (a.act === 'adaptiveOff'){ state.adaptive.enabled = false; saveState(); refresh(); return; }
+      if (a.act === 'adaptiveOn'){
+        const from = targetKcal(); state.adaptive.enabled = true; const to = targetKcal();
+        if (from !== to) state.adaptive.lastChange = { from, to, at: todayIso(), reason: 'You switched back to the measured target.' };
+        saveState(); refresh(); return;
+      }
+      if (a.act === 'toggleNet'){ state.prefs.netCalories = !state.prefs.netCalories; saveState(); refresh(); return; }
+      if (a.act === 'macroEdit'){ state.macroEditing = true; refresh(); return; }
+      if (a.act === 'macroCancel'){ state.macroEditing = false; refresh(); return; }
+      if (a.act === 'macroSave'){ saveMacrosFromForm(); return; }
+      if (a.act === 'macroReset'){ state.prefs.macros = null; state.macroEditing = false; saveState(); refresh(); return; }
       if (a.act === 'exSheetClose'){ state.exSheet = null; refresh(); return; }
       if (a.act === 'exReset'){
         clearOverride(decodeURIComponent(a.wname), +a.slot);
@@ -1891,6 +1967,7 @@ function runAction(el, page){
       if (a.act === 'qtyPreset'){ if (state.sheet){ state.sheet.qty = +a.q; refreshFoodOnly(); } }
       if (a.act === 'confirmAdd'){          /* log the food into the active meal */
         if (state.sheet){
+          coachTick();                   /* past midnight? archive yesterday before logging into today */
           const entry = { food: state.sheet.food, qty: state.sheet.qty };
           state.meals[state.activeMeal].push(entry);
           pushRecent(state.sheet.food);
@@ -1899,6 +1976,9 @@ function runAction(el, page){
         }
       }
       if (a.act === 'rmFood')   {           /* remove from a meal */
+        /* if the day rolled since this list was drawn, the entry is already
+           archived — re-render rather than deleting the wrong thing */
+        if (coachTick()){ saveState(); refreshFoodOnly(); return; }
         state.meals[a.meal].splice(+a.i,1); saveState(); refreshFoodOnly();
       }
       if (a.act === 'toggleFav'){
@@ -1983,6 +2063,8 @@ function runAction(el, page){
         state.profile = { ...state.draft };
         state.goal = state.profile.goal;
         state.plan = computePlan();
+        /* the recommendation just changed, so hand-set grams no longer refer to it */
+        state.prefs.macros = null; state.macroEditing = false;
         saveState();                  /* first point in the wizard that writes durable state */
         nav('Your Plan', pagePlanFull);
       }
@@ -2016,7 +2098,10 @@ function bindActions(page){
 
 /* ================= PERSONALIZATION ENGINE ================= */
 const goalData  = () => GOALS.find(g => g.id === state.goal);
-const kcalGoal  = () => state.plan ? state.plan.kcal : (goalData()?.calories || 2000);
+/* What the tracker measures against today. effectiveTargets() chooses the base
+   (grams the user typed > measured expenditure > formula); net-calorie mode,
+   when switched on, adds today's logged training burn on top. */
+const kcalGoal  = () => effectiveTargets().kcal + (state.prefs.netCalories ? todayBurn() : 0);
 /* every logged entry is {food, qty}; totals multiply by qty and round */
 const allLogged = () => Object.values(state.meals).flat();
 const eKcal = e => Math.round(e.food.calories * e.qty);
@@ -2374,13 +2459,15 @@ function pageMenu(){
   const pf = state.profile;
   const first = pf ? pf.name.trim().split(' ')[0] : null;
   const opts = pf ? [
-    { t:"Your Plan",       d:`${icon(goalData().icon, 15)} ${goalData().label} · ${state.plan.kcal} kcal/day · ${state.profile.days}x per week`, route:"plan" },
-    { t:"Calorie Tracker", d:`Log fuel against your ${state.plan.kcal} kcal target and macro split`, route:"calories" },
+    { t:"Your Plan",       d:`${icon(goalData().icon, 15)} ${goalData().label} · ${targetKcal()} kcal/day · ${state.profile.days}x per week`, route:"plan" },
+    { t:"Calorie Tracker", d:`Log fuel against your ${targetKcal()} kcal target and macro split`, route:"calories" },
+    { t:"Nutrition",       d:"How your intake and weight are actually trending", route:"nutrition" },
     { t:"Workout Library", d:"Every session, organized by what it does for you", route:"workouts" },
     { t:"Activity Log",    d:"Everything you've burned so far", route:"log" },
   ] : [
     { t:"Goal Analysis",   d:"Seven quick questions — get calories, macros and a weekly schedule built for you", route:"goals" },
     { t:"Calorie Tracker", d:"Log fuel against your daily target", route:"calories" },
+    { t:"Nutrition",       d:"How your intake and weight are actually trending", route:"nutrition" },
     { t:"Workout Library", d:"Every session, organized by what it does for you", route:"workouts" },
     { t:"Activity Log",    d:"Everything you've burned so far", route:"log" },
   ];
@@ -2579,9 +2666,11 @@ function pagePlanFull(){
   const adjTxt = tune.adj < 0 ? `−${adjPct}% deficit` : tune.adj > 0 ? `+${adjPct}% surplus` : 'at maintenance';
   const first = pf.name.trim().split(' ')[0];
 
-  /* macro split bar widths by calorie share */
-  const totCal = p.proteinCal + p.carbCal + p.fatCal || 1;
-  const pW = p.proteinCal/totCal*100, cW = p.carbCal/totCal*100, fW = p.fatCal/totCal*100;
+  /* macro split bar widths by calorie share — of the target in force today,
+     which may be measured or hand-set rather than the formula's */
+  const et = effectiveTargets();
+  const totCal = et.protein*4 + et.carbs*4 + et.fat*9 || 1;
+  const pW = et.protein*4/totCal*100, cW = et.carbs*4/totCal*100, fW = et.fat*9/totCal*100;
   const C_P = '#f06511', C_C = '#ffb060', C_F = '#7a8bd6';
 
   /* projection wording */
@@ -2614,19 +2703,24 @@ function pagePlanFull(){
     <!-- ===== DAILY FUEL ===== -->
     <div class="sec rv">Daily fuel target</div>
     <div class="card rv" style="border-color:var(--ember-mid)">
-      <span class="big" style="font-size:32px;color:var(--ember)">${p.kcal}<span class="mut" style="font-size:15px;font-family:'Space Grotesk'"> kcal / day · ${adjTxt}</span></span>
+      <div class="row" style="align-items:flex-start">
+        <span class="big" style="font-size:32px;color:var(--ember)">${et.kcal}<span class="mut" style="font-size:15px;font-family:'Space Grotesk'"> kcal / day · ${et.source === 'formula' ? adjTxt : et.source === 'adaptive' ? 'measured' : 'your macros'}</span></span>
+        <span class="pill em" style="flex-shrink:0;margin-top:8px">${SOURCE_LABEL[et.source]}</span>
+      </div>
       <div class="msplit">
         <i style="width:${pW}%;background:${C_P}"></i>
         <i style="width:${cW}%;background:${C_C}"></i>
         <i style="width:${fW}%;background:${C_F}"></i>
       </div>
       <div class="mkey">
-        <span><span class="dot" style="background:${C_P}"></span>Protein <b>${p.protein}g</b> · ${Math.round(pW)}%</span>
-        <span><span class="dot" style="background:${C_C}"></span>Carbs <b>${p.carbs}g</b> · ${Math.round(cW)}%</span>
-        <span><span class="dot" style="background:${C_F}"></span>Fat <b>${p.fat}g</b> · ${Math.round(fW)}%</span>
+        <span><span class="dot" style="background:${C_P}"></span>Protein <b>${et.protein}g</b> · ${Math.round(pW)}%</span>
+        <span><span class="dot" style="background:${C_C}"></span>Carbs <b>${et.carbs}g</b> · ${Math.round(cW)}%</span>
+        <span><span class="dot" style="background:${C_F}"></span>Fat <b>${et.fat}g</b> · ${Math.round(fW)}%</span>
       </div>
-      ${p.floored ? '<p class="mut" style="font-size:12px;margin:12px 0 0">Raised to a 1,300 kcal floor — going lower works against you.</p>' : ''}
+      ${et.source === 'formula' && p.floored ? '<p class="mut" style="font-size:12px;margin:12px 0 0">Raised to a 1,300 kcal floor — going lower works against you.</p>' : ''}
+      ${et.source !== 'formula' ? `<p class="mut" style="font-size:12px;margin:12px 0 0">The formula's recommendation was ${p.kcal} kcal · P ${p.protein} · C ${p.carbs} · F ${p.fat}.</p>` : ''}
     </div>
+    ${macroEditor()}
 
     <!-- ===== BODY METRICS GRID ===== -->
     <div class="pgrid rv">
@@ -2654,12 +2748,23 @@ function pagePlanFull(){
 
     <div class="card rv-l">
       <div class="fl" style="margin-bottom:8px">Why this number</div>
+      ${et.source === 'manual' ? `
+      <p class="mut" style="font-size:14px;line-height:1.7;margin:0">
+        You set these yourself: <b class="em">${et.protein}g</b> protein, <b class="em">${et.carbs}g</b> carbs and <b class="em">${et.fat}g</b> fat, which comes to <b class="em">${et.kcal} kcal</b>.
+        The formula would have recommended ${p.kcal} kcal from a ${p.tdee} kcal daily burn (Mifflin-St Jeor × your lifestyle). Reset above to return to it — and to let the measured estimate steer the target again.
+      </p>` : et.source === 'adaptive' ? `
+      <p class="mut" style="font-size:14px;line-height:1.7;margin:0">
+        This one is <b class="em">measured, not predicted</b>. The formula (Mifflin-St Jeor scaled by your "${pf.actLabel.toLowerCase()}" lifestyle) guessed a daily burn of ${p.tdee} kcal; your own logged intake against your weight trend puts it nearer <b class="em">${state.adaptive.tdee} kcal</b>.
+        For ${g.label.toLowerCase()}, we set intake ${tune.why}
+        Protein stays anchored at <b class="em">${tune.prot.toFixed(1)} g per kg</b>. The estimate re-checks weekly and moves at most ${ADAPT.step} kcal at a time, so a strange week cannot swing it.
+      </p>` : `
       <p class="mut" style="font-size:14px;line-height:1.7;margin:0">
         Your body burns about <b class="em">${p.bmr} kcal</b> at complete rest (Mifflin-St Jeor).
         Scaled by your "${pf.actLabel.toLowerCase()}" lifestyle, your true daily burn is around
         <b class="em">${p.tdee} kcal</b>. For ${g.label.toLowerCase()}, we set intake ${tune.why}
         Protein is anchored at <b class="em">${tune.prot.toFixed(1)} g per kg</b> — about <b class="em">${p.proteinPerMeal}g per meal</b> for steady muscle protein synthesis.
-      </p>
+        Once two weeks of weigh-ins and food logs overlap, this starting guess gives way to what your body actually does.
+      </p>`}
     </div>
 
     <!-- ===== MEAL BREAKDOWN ===== -->
@@ -2745,7 +2850,7 @@ function pagePlanFull(){
       <button class="btn" data-act="open" data-route="calories">Open Calorie Tracker</button>
       <button class="btn" style="background:transparent;color:var(--accent);border:1px solid var(--accent)" data-act="retake">↻ Retake Analysis</button>
     </div>
-    <p class="mut rv" style="font-size:11.5px;line-height:1.6;margin-top:18px">Estimates for healthy adults, not medical advice. Projections assume consistent adherence and will vary with individual metabolism — adjust with how you feel and consult a professional for specific conditions.</p>`;
+    <p class="mut rv" style="font-size:11.5px;line-height:1.6;margin-top:18px">Estimates for healthy adults, not medical advice — that includes targets measured from your own data, which are only as good as what was logged. Projections assume consistent adherence and will vary with individual metabolism — adjust with how you feel and consult a professional for specific conditions.</p>`;
 }
 
 const CAT_LABEL = {
@@ -3114,13 +3219,18 @@ function exerciseSheet(groups, dbCount){
 }
 
 function pageCalories(){
+  const t = effectiveTargets(), burn = state.prefs.netCalories ? todayBurn() : 0;
+  const how = t.source === 'adaptive' ? 'measured' : t.source === 'manual' ? 'own' : 'personalized';
   return `
     <div class="kicker rv">Fuel</div>
     <h1 class="rv">Calorie Tracker</h1>
     <p class="lede rv">${state.plan
-      ? `Your personalized target: <b class="em">${kcalGoal()} kcal</b> with ${state.plan.protein}g protein — straight from your analysis.`
+      ? `Your ${how} target: <b class="em">${kcalGoal()} kcal</b> with ${t.protein}g protein${burn ? ` — including ${burn} kcal from today's training` : ''}.`
       : `Run the Goal Analysis for a target computed from your body and lifestyle.`}</p>
-    <div id="foodzone">${foodZone()}</div>`;
+    ${weighPrompt()}
+    <div id="foodzone">${foodZone()}</div>
+    ${state.plan || state.weighIns.length ? `<div class="sec">Coaching</div>${targetCard()}${weightTrendCard()}${netCard()}` : ''}
+    <p class="mut rv" style="font-size:11.5px;line-height:1.6;margin-top:6px">Targets — including ones measured from your own data — are estimates for healthy adults, not medical advice.</p>`;
 }
 
 /* find a food by name across the database + custom foods */
@@ -3176,9 +3286,9 @@ const MEAL_ICON = { Breakfast:'sun', Lunch:'halfsun', Dinner:'moon', Snack:'spar
 function foodZone(){
   const t = totals();
   const total = t.kcal, goal = kcalGoal(), left = goal - total, pct = Math.min(total/goal*100,100);
-  const tP = state.plan ? state.plan.protein : 150;
-  const tC = state.plan ? state.plan.carbs   : 250;
-  const tF = state.plan ? state.plan.fat     : 70;
+  const et = effectiveTargets();
+  const tP = et.protein, tC = et.carbs, tF = et.fat;
+  const netBurn = state.prefs.netCalories ? todayBurn() : 0;
   const macroRow = (label, val, target, col) => `
     <div class="row" style="margin-top:10px"><span class="mut" style="font-size:12px">${label}</span>
     <span style="font-size:12px;font-weight:700">${val} / ${target}g</span></div>
@@ -3192,6 +3302,7 @@ function foodZone(){
         <span style="font-weight:700;font-size:13px;color:${left<0?'var(--danger)':'var(--accent)'}">${left<0 ? `+${-left} over` : `${left} left`}</span>
       </div>
       <div class="bar"><div style="width:${pct}%"></div></div>
+      ${netBurn ? `<div class="mut" style="font-size:11.5px;margin:-2px 0 4px">target includes +${netBurn} kcal from today's training</div>` : ''}
       ${macroRow('PROTEIN', t.p, tP, '#f06511')}
       ${macroRow('CARBS',   t.c, tC, '#ffb060')}
       ${macroRow('FAT',     t.f, tF, '#7a8bd6')}
@@ -3598,11 +3709,510 @@ function pageLog(){
     : `<div class="empty" style="margin-top:16px">No sessions in this period.</div>`}`;
 }
 
+
+/* ================= COACHING =================
+   Closed-loop targets. The formula (Mifflin-St Jeor × activity) is only the
+   opening guess. Once enough weigh-ins and food logs overlap, expenditure is
+   inferred from what actually happened — logged intake against the smoothed
+   weight trend — and the target follows it: slowly, weekly, inside hard
+   bounds. Everything here is pure over `state` except three mutators:
+   rolloverDay(), logWeight() and recalibrate(). */
+
+/* ---- local calendar days as 'YYYY-MM-DD'. Never UTC — see ACTIVITY PERIODS ---- */
+const pad2 = n => String(n).padStart(2, '0');
+const isoDay  = d => { const x = d instanceof Date ? d : new Date(d);
+  return x.getFullYear() + '-' + pad2(x.getMonth() + 1) + '-' + pad2(x.getDate()); };
+const fromIso = v => { const [y, m, d] = String(v).split('-').map(Number); return new Date(y, m - 1, d); };
+/* whole days between two local dates; rounding absorbs the 23h/25h DST days */
+const daysBetween = (a, b) => Math.round((startOfDay(b) - startOfDay(a)) / 86400000);
+const todayIso = () => isoDay(new Date());
+
+function upsertByDate(arr, entry){
+  const i = arr.findIndex(e => e.date === entry.date);
+  if (i >= 0) arr[i] = entry;
+  else { arr.push(entry); arr.sort((x, y) => x.date < y.date ? -1 : x.date > y.date ? 1 : 0); }
+}
+
+/* ---- the diary is one day; this is what turns it into a history ----
+   state.meals was always "today", with no date on it and nothing that ever
+   cleared it. It now carries mealsDate, and the first tick on a later day
+   archives its totals under that date and starts a fresh diary. Only days with
+   something logged are archived, so a date missing from intakeLog means "not
+   logged" — exactly the distinction the density guard needs. */
+function rolloverDay(){
+  const today = todayIso();
+  if (!state.mealsDate){ state.mealsDate = today; return false; }   /* legacy blob: adopt today, don't guess a date */
+  if (state.mealsDate === today) return false;
+  const n = allLogged().length;
+  if (n){
+    const t = totals();
+    upsertByDate(state.intakeLog, { date: state.mealsDate, kcal: t.kcal, p: t.p, c: t.c, f: t.f, n });
+  }
+  state.meals = freshMeals();
+  state.mealsDate = today;
+  return true;
+}
+
+/* ---- weight ---- */
+const KG_PER_LB = 0.45359237;
+const useImperial = () => !!(state.profile && state.profile.units === 'imp');
+const weightUnit  = () => useImperial() ? 'lb' : 'kg';
+const toDisplayKg = kg => useImperial() ? kg / KG_PER_LB : kg;
+const fmtWeight   = kg => toDisplayKg(kg).toFixed(1) + ' ' + weightUnit();
+const fmtDelta    = kg => (kg < 0 ? '−' : '+') + Math.abs(toDisplayKg(kg)).toFixed(1) + ' ' + weightUnit();
+
+/* value arrives in the user's display unit; stored canonically in kg, one per day */
+function logWeight(value){
+  const v = +value;
+  const kg = useImperial() ? v * KG_PER_LB : v;
+  if (!(kg > 20 && kg < 400)) return false;
+  upsertByDate(state.weighIns, { date: todayIso(), kg: Math.round(kg * 10) / 10 });
+  return true;
+}
+const weighedOn = iso => state.weighIns.find(w => w.date === iso) || null;
+
+/* Smoothed trend weight AT a day: a weighted average of the readings from the
+   previous TREND_WINDOW days, each discounted by its age. Scale weight moves
+   1–2 kg day to day on water, sodium and what is still in the gut; this is
+   what makes the direction underneath visible. It only looks backward, so it
+   lags the scale by a few days — that lag is the point. */
+const TREND_WINDOW = 14, TREND_DECAY = 0.85;
+function weightTrend(atIso){
+  const at = fromIso(atIso);
+  let num = 0, den = 0;
+  for (const w of state.weighIns){
+    const age = daysBetween(fromIso(w.date), at);
+    if (age < 0 || age >= TREND_WINDOW) continue;
+    const k = Math.pow(TREND_DECAY, age);
+    num += w.kg * k; den += k;
+  }
+  return den ? num / den : null;
+}
+/* [{date, trend, raw|null}] for the days in the last `days` that have a trend */
+function trendSeries(days, endIso = todayIso()){
+  const out = [], end = fromIso(endIso);
+  for (let i = days - 1; i >= 0; i--){
+    const d = isoDay(addDays(end, -i));
+    const t = weightTrend(d);
+    if (t === null) continue;
+    const w = weighedOn(d);
+    out.push({ date: d, trend: t, raw: w ? w.kg : null });
+  }
+  return out;
+}
+
+/* ---- adaptive expenditure ---- */
+const ADAPT = {
+  minDays: 14,       /* never adjust on less overlapping data than this */
+  window: 28,        /* rolling window, shortened only by how much data exists */
+  minLogged: 0.7,    /* share of window days that must carry a food log */
+  minWeighIns: 4,    /* readings needed inside the window … */
+  anchorDays: 4,     /* … with one this close to each end, so both endpoints are real */
+  step: 150,         /* most the estimate may move per recalibration, kcal */
+  blend: 0.5,        /* how far toward the raw figure each step reaches */
+  drift: 500,        /* furthest the estimate may ever sit from the formula, kcal */
+  cadenceDays: 7,    /* recalibrate at most this often */
+  kcalPerKg: 7700,
+};
+
+/* Pure. Says what the data supports right now and changes nothing. The window
+   ends YESTERDAY: today's diary is still being written and would read low. */
+function adaptiveModel(today = todayIso()){
+  if (!state.plan) return { status:'noplan' };
+  const T = fromIso(today);
+  const firstW = state.weighIns[0], firstI = state.intakeLog[0];
+  if (!firstW || !firstI) return { status:'learning', daysOfData:0, needDays:ADAPT.minDays };
+  const start = fromIso(firstW.date < firstI.date ? firstW.date : firstI.date);
+  const daysOfData = daysBetween(start, T);
+  if (daysOfData < ADAPT.minDays) return { status:'learning', daysOfData, needDays:ADAPT.minDays - daysOfData };
+
+  const windowDays = Math.min(ADAPT.window, daysOfData);
+  const wEnd = addDays(T, -1);
+  const wStart = addDays(wEnd, -(windowDays - 1));
+  const inWin = e => { const d = fromIso(e.date); return d >= wStart && d <= wEnd; };
+
+  const logged = state.intakeLog.filter(inWin);
+  const needLogged = Math.ceil(windowDays * ADAPT.minLogged);
+  if (logged.length < needLogged) return { status:'sparse-food', loggedDays:logged.length, windowDays, needLogged };
+
+  const wIns = state.weighIns.filter(inWin);
+  const early = wIns.some(w => daysBetween(wStart, fromIso(w.date)) < ADAPT.anchorDays);
+  const late  = wIns.some(w => daysBetween(fromIso(w.date), wEnd) < ADAPT.anchorDays);
+  if (wIns.length < ADAPT.minWeighIns || !early || !late)
+    return { status:'sparse-weight', weighIns:wIns.length, windowDays, need:ADAPT.minWeighIns, early, late };
+
+  const avgIntake  = logged.reduce((sum, e) => sum + e.kcal, 0) / logged.length;
+  const trendStart = weightTrend(isoDay(wStart)), trendEnd = weightTrend(isoDay(wEnd));
+  const changeKg   = trendEnd - trendStart;
+  const rawTdee    = avgIntake - (changeKg * ADAPT.kcalPerKg / windowDays);
+  const lossPctPerWeek = trendEnd > 0 ? ((-changeKg / (windowDays / 7)) / trendEnd) * 100 : 0;
+  return { status:'ready', windowDays, loggedDays:logged.length, weighIns:wIns.length,
+           avgIntake:Math.round(avgIntake), trendStart, trendEnd, changeKg,
+           rawTdee:Math.round(rawTdee), lossPctPerWeek };
+}
+
+/* The one place the estimate moves, and where every guardrail lives: never
+   more than once per cadence; blended toward the raw figure, never replaced by
+   it; never more than `step` per move; never further than `drift` from the
+   formula; and the target it produces never below the 1,300 floor (that last
+   one is applied in adaptiveKcal). Returns true when the TARGET changed. */
+function recalibrate(today = todayIso()){
+  const m = adaptiveModel(today);
+  if (m.status !== 'ready') return false;
+  const a = state.adaptive;
+  if (a.updatedAt && daysBetween(fromIso(a.updatedAt), fromIso(today)) < ADAPT.cadenceDays) return false;
+  const base  = state.plan.tdee;
+  if (!Number.isFinite(base)) return false;   /* a corrupt plan must not become a NaN estimate */
+  const prior = Number.isFinite(a.tdee) ? a.tdee : base;
+  const blended = prior + ADAPT.blend * (m.rawTdee - prior);
+  const step = Math.max(-ADAPT.step, Math.min(ADAPT.step, blended - prior));
+  let next = prior + step;
+  next = Math.max(base - ADAPT.drift, Math.min(base + ADAPT.drift, next));
+  const from = targetKcal();
+  a.tdee = Math.round(next); a.updatedAt = today;
+  const to = targetKcal();
+  if (from !== to) a.lastChange = { from, to, at: today, reason: changeReason(m, from, to) };
+  return from !== to;
+}
+function changeReason(m, from, to){
+  const dir = m.changeKg < -0.1 ? 'came down ' + fmtDelta(m.changeKg).slice(1)
+            : m.changeKg >  0.1 ? 'went up '   + fmtDelta(m.changeKg).slice(1)
+            : 'held steady';
+  const est = state.adaptive.tdee, vs = est < state.plan.tdee ? 'lower' : 'higher';
+  return `Over the last ${m.windowDays} days you averaged ${m.avgIntake} kcal and your trend weight ${dir}. `
+       + `That puts your real daily expenditure near ${est} kcal — ${vs} than the ${state.plan.tdee} the formula assumed — `
+       + `so your target moves from ${from} to ${to}.`;
+}
+
+/* target from the measured estimate: same goal adjustment as the formula, same floor */
+function adaptiveKcal(){
+  const a = state.adaptive;
+  if (!state.plan || !state.profile || !Number.isFinite(a.tdee)) return null;
+  const tune = GOAL_TUNING[state.profile.goal] || GOAL_TUNING.maintain;
+  return Math.max(1300, Math.round(a.tdee * (1 + tune.adj) / 10) * 10);
+}
+/* Where today's base target comes from. Grams the user typed beat the
+   measured estimate, which beats the formula — the most explicit thing the
+   user has said wins. */
+function targetSource(){
+  if (!state.plan) return 'none';
+  if (state.prefs.macros) return 'manual';
+  if (state.adaptive.enabled && adaptiveKcal() !== null) return 'adaptive';
+  return 'formula';
+}
+function targetKcal(){ return effectiveTargets().kcal; }
+function effectiveTargets(){
+  const p = state.plan, source = targetSource();
+  if (source === 'none'){
+    const gd = goalData();
+    return { kcal: (gd && gd.calories) || 2000, protein:150, carbs:250, fat:70, source };
+  }
+  if (source === 'manual'){
+    const m = state.prefs.macros;
+    return { kcal: m.protein*4 + m.carbs*4 + m.fat*9, protein:m.protein, carbs:m.carbs, fat:m.fat, source };
+  }
+  if (source === 'formula') return { kcal:p.kcal, protein:p.protein, carbs:p.carbs, fat:p.fat, source };
+  /* adaptive: protein stays anchored to bodyweight, fat stays at 27%, carbs
+     take the remainder — the same shape computePlan() uses */
+  const kcal  = adaptiveKcal();
+  const fat   = Math.round(kcal * 0.27 / 9);
+  const carbs = Math.max(Math.round((kcal - p.protein*4 - fat*9) / 4), 0);
+  return { kcal, protein:p.protein, carbs, fat, source };
+}
+const SOURCE_LABEL = { manual:'Your macros', adaptive:'Measured', formula:'Formula', none:'Default' };
+
+function todayBurn(){ return doneStats(inRange(periodRange('today'))).kcal; }
+
+/* Safety notes. Factual; nothing here celebrates speed or scolds a miss. */
+function coachNotes(){
+  const out = [], m = adaptiveModel();
+  if (m.status !== 'ready') return out;
+  if (state.profile && state.profile.goal === 'lose' && m.lossPctPerWeek > 1)
+    out.push(`Your trend has been dropping about ${m.lossPctPerWeek.toFixed(1)}% of bodyweight a week — faster than the 0.5–1% usually recommended. Eating a little more is reasonable here; the target will not go lower on its own.`);
+  if (m.avgIntake < 0.75 * targetKcal())
+    out.push(`Logged intake has averaged well under your target. If that is accurate, bringing it up is sensible; if meals are going unlogged, the measured estimate will drift low.`);
+  return out;
+}
+
+/* one tick: roll the diary if the day changed, then move the estimate if due */
+function coachTick(){
+  const rolled = rolloverDay();
+  const moved  = recalibrate();
+  return rolled || moved;
+}
+
+/* ---- rendering ---- */
+function sparkline(series){
+  if (series.length < 2) return '';
+  const W = 300, H = 56, PAD = 5;
+  const vals = series.flatMap(x => x.raw !== null ? [x.trend, x.raw] : [x.trend]);
+  const min = Math.min(...vals), max = Math.max(...vals), span = (max - min) || 1;
+  const X = i => (PAD + i / (series.length - 1) * (W - 2*PAD)).toFixed(1);
+  const Y = v => (H - PAD - (v - min) / span * (H - 2*PAD)).toFixed(1);
+  const line = series.map((x, i) => X(i) + ',' + Y(x.trend)).join(' ');
+  const dots = series.map((x, i) => x.raw === null ? '' : `<circle class="raw" cx="${X(i)}" cy="${Y(x.raw)}" r="0.1"/>`).join('');
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true" focusable="false">${dots}<polyline points="${line}"/></svg>`;
+}
+
+/* once a day, dismissible, and only when today has no reading yet */
+function weighPrompt(){
+  const today = todayIso();
+  if (weighedOn(today) || state.prefs.weighDismissed === today) return '';
+  return `
+    <div class="card rv" style="border-color:var(--ember-mid);margin-top:20px">
+      <div class="fl" style="margin-bottom:8px">Log today's weight</div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <input id="wtIn" class="inp" type="number" inputmode="decimal" step="0.1" min="0"
+               placeholder="${weightUnit()}" style="flex:1;min-width:0" aria-label="Weight in ${weightUnit()}">
+        <button class="btn" style="width:auto;padding:12px 18px;flex-shrink:0" data-act="logWeight">Save</button>
+        <button class="linkbtn" style="flex-shrink:0" data-act="dismissWeigh">Not today</button>
+      </div>
+      <div id="wtErr" class="mut" style="font-size:12px;min-height:14px;margin-top:6px;color:var(--danger)"></div>
+      <p class="mut" style="font-size:12px;line-height:1.5;margin:4px 0 0">Same conditions each time — first thing in the morning works best. Missed days are fine.</p>
+    </div>`;
+}
+
+function weightTrendCard(){
+  const series = trendSeries(28);
+  if (series.length < 2) return '';
+  const today = todayIso(), have = weighedOn(today);
+  const now = series[series.length - 1].trend;
+  const change = now - series[0].trend;
+  return `
+    <div class="card">
+      <div class="row" style="margin-bottom:6px">
+        <div class="fl" style="margin:0">Weight trend</div>
+        <span class="pill em">${series.length} day${series.length === 1 ? '' : 's'}</span>
+      </div>
+      ${sparkline(series)}
+      <div style="display:flex;justify-content:space-around;text-align:center;padding:10px 0 2px">
+        <div class="stat"><b style="font-size:1.25rem">${fmtWeight(now)}</b><span>Trend now</span></div>
+        <div class="stat"><b style="font-size:1.25rem">${fmtDelta(change)}</b><span>${series.length}-day change</span></div>
+        <div class="stat"><b style="font-size:1.25rem">${state.weighIns.length}</b><span>Weigh-ins</span></div>
+      </div>
+      <p class="mut" style="font-size:12px;line-height:1.55;margin:8px 0 0">
+        This is a <b>trend</b>, not the scale: the line is a rolling weighted average, the dots are what the scale said. Daily weight swings 1–2 kg on water and sodium alone, so one reading up or down means very little.${have ? ` Today's reading: ${fmtWeight(have.kg)}.` : ''}
+      </p>
+    </div>`;
+}
+
+function targetCard(){
+  if (!state.plan) return '';
+  const t = effectiveTargets(), m = adaptiveModel(), a = state.adaptive;
+  const P = 'class="mut" style="font-size:13px;line-height:1.6;margin:0"';
+  let body;
+  if (t.source === 'manual'){
+    body = `<p ${P}>You set these macros yourself, so the measured estimate is shown for information only. Reset them on the plan page to let the target adjust again.</p>`;
+  } else if (m.status === 'learning'){
+    body = `<p ${P}>Learning your metabolism — <b class="em">${m.needDays} more day${m.needDays === 1 ? '' : 's'}</b> of weigh-ins and food logs, then this target starts adjusting to what your body actually does rather than what a formula predicts.</p>`;
+  } else if (m.status === 'sparse-food'){
+    body = `<p ${P}>Holding steady. Food was logged on ${m.loggedDays} of the last ${m.windowDays} days; the estimate needs ${m.needLogged} to trust the intake numbers. It cannot measure what it cannot see.</p>`;
+  } else if (m.status === 'sparse-weight'){
+    body = `<p ${P}>Holding steady. It needs at least ${m.need} weigh-ins spread across the last ${m.windowDays} days, with one near each end (${m.weighIns} so far). A reading every few days is plenty.</p>`;
+  } else if (a.enabled){
+    const lc = a.lastChange, recent = lc && daysBetween(fromIso(lc.at), new Date()) <= 14;
+    body = `
+      <p ${P}>Measured from <b>your</b> data: your daily expenditure is running near <b class="em">${a.tdee} kcal</b> (the formula assumed ${state.plan.tdee}). It re-checks weekly, moves at most ${ADAPT.step} kcal at a time, and never strays more than ${ADAPT.drift} kcal from the formula.</p>
+      ${recent ? `<p style="font-size:13px;line-height:1.6;margin:10px 0 0;padding:10px 12px;border:1px solid var(--border);border-radius:10px"><b>What changed:</b> ${escHtml(lc.reason)}</p>` : ''}
+      <p style="margin:12px 0 0"><button class="linkbtn" data-act="adaptiveOff">Keep the formula target instead</button></p>`;
+  } else {
+    body = `
+      <p ${P}>You are on the formula target. Your measured expenditure is running near <b class="em">${a.tdee === null ? '—' : a.tdee} kcal</b> against the formula's ${state.plan.tdee}.</p>
+      <p style="margin:12px 0 0"><button class="linkbtn" data-act="adaptiveOn">Use the measured target</button></p>`;
+  }
+  const notes = coachNotes().map(n => `<p class="mut" style="font-size:12.5px;line-height:1.55;margin:10px 0 0;padding:9px 12px;border:1px solid var(--border);border-radius:10px">${n}</p>`).join('');
+  return `
+    <div class="card">
+      <div class="row" style="margin-bottom:8px">
+        <div class="fl" style="margin:0">Your target</div>
+        <span class="pill em">${SOURCE_LABEL[t.source]}</span>
+      </div>
+      <span class="big" style="font-size:24px;color:var(--ember)">${t.kcal}<span class="mut" style="font-size:13px;font-family:'Space Grotesk'"> kcal / day · P ${t.protein} · C ${t.carbs} · F ${t.fat}</span></span>
+      <div style="margin-top:10px">${body}</div>
+      ${notes}
+    </div>`;
+}
+
+function netCard(){
+  if (!state.plan) return '';
+  const on = state.prefs.netCalories, burn = todayBurn(), measured = targetSource() === 'adaptive';
+  return `
+    <div class="card">
+      <div class="row">
+        <div style="min-width:0">
+          <div class="fl" style="margin:0 0 4px">Net calories</div>
+          <div class="mut" style="font-size:12.5px">${on ? `On — today's training (${burn} kcal so far) is added to your target` : 'Off — your target stands on its own'}</div>
+        </div>
+        <span class="chip ${on ? 'on' : ''}" data-act="toggleNet" role="switch" aria-checked="${on}" style="flex-shrink:0">${on ? 'On' : 'Off'}</span>
+      </div>
+      <p class="mut" style="font-size:12px;line-height:1.55;margin:10px 0 0">Workout burn figures are estimates, and eating all of them back is a well-known way to stall. This is most useful when training varies a lot week to week; if it is steady, leave it off.${measured ? ' <b>Note:</b> your measured target already absorbs your average training, so switching this on can count it twice — keep it for an unusual week.' : ''}</p>
+    </div>`;
+}
+
+/* ---- nutrition trends ---- */
+/* every diary day inside the range: completed days from intakeLog plus today's
+   live diary — the single reducer the whole page goes through */
+function intakeDays(range){
+  const inR = iso => !range || (fromIso(iso) >= range[0] && fromIso(iso) < range[1]);
+  const days = state.intakeLog.filter(e => inR(e.date));
+  const n = allLogged().length;
+  if (n && state.mealsDate && inR(state.mealsDate)){
+    const t = totals();
+    days.push({ date: state.mealsDate, kcal:t.kcal, p:t.p, c:t.c, f:t.f, n, live:true });
+  }
+  return days;
+}
+function intakeStats(range){
+  const days = intakeDays(range), t = effectiveTargets(), logged = days.length;
+  const avg = k => logged ? Math.round(days.reduce((sum, e) => sum + e[k], 0) / logged) : 0;
+  return {
+    logged, kcal:avg('kcal'), p:avg('p'), c:avg('c'), f:avg('f'),
+    within:  days.filter(e => Math.abs(e.kcal - t.kcal) <= t.kcal * 0.1).length,
+    protein: days.filter(e => e.p >= t.protein * 0.9).length,
+  };
+}
+/* calendar days the period has covered so far, today included */
+function periodDaysSoFar(period){
+  const now = new Date();
+  if (period === 'today') return 1;
+  if (period === 'week')  return daysBetween(startOfWeek(now), now) + 1;
+  if (period === 'month') return now.getDate();
+  const first = [state.intakeLog[0] && state.intakeLog[0].date, state.weighIns[0] && state.weighIns[0].date, state.mealsDate]
+    .filter(Boolean).sort()[0];
+  return first ? daysBetween(fromIso(first), now) + 1 : 1;
+}
+
+function pageNutrition(){
+  const period = state.nutPeriod || 'week';
+  const range  = periodRange(period);
+  const s = intakeStats(range), t = effectiveTargets(), span = periodDaysSoFar(period);
+  const series = trendSeries(period === 'month' ? 31 : period === 'career' ? 90 : 7);
+  const change = series.length >= 2 ? series[series.length - 1].trend - series[0].trend : null;
+  const seg = `
+    <div class="seg rv" role="group" aria-label="Time period">
+      ${LOG_PERIODS.map(([id, label]) => `
+        <button class="${period === id ? 'on' : ''}" data-act="setNutPeriod" data-p="${id}" aria-pressed="${period === id}">${label}</button>`).join('')}
+    </div>`;
+  if (!s.logged && series.length < 2) return `
+    <div class="kicker rv">Fuel · trends</div>
+    <h1 class="rv">Nutrition</h1>
+    ${seg}
+    <p class="lede rv">Nothing to show ${PERIOD_PHRASE[period]} yet. Log meals in the tracker and weigh in now and then — the patterns build from there.</p>
+    <div class="rv" style="margin-top:24px;max-width:320px"><button class="btn" data-act="open" data-route="calories">Open Calorie Tracker</button></div>`;
+  const notes = coachNotes();
+  const srcSub = t.source === 'adaptive' ? 'measured from your own intake and weight trend'
+               : t.source === 'manual'   ? 'the grams you set on the plan page'
+               : 'Mifflin-St Jeor × your lifestyle';
+  return `
+    <div class="kicker rv">Fuel · trends</div>
+    <h1 class="rv">Nutrition</h1>
+    ${seg}
+    <p class="lede rv">${s.logged
+      ? `You logged <b class="em">${s.logged} of ${span} day${span === 1 ? '' : 's'}</b> ${PERIOD_PHRASE[period]}, averaging <b class="em">${s.kcal} kcal</b> against a ${t.kcal} target.`
+      : `No meals logged ${PERIOD_PHRASE[period]} — the weight trend below still stands.`}</p>
+
+    ${s.logged ? `
+    <div class="card rv" style="display:flex;justify-content:space-around;text-align:center;padding:20px 10px;border-color:var(--ember-mid);margin-top:18px">
+      <div class="stat"><b>${s.kcal}</b><span>kcal / day</span></div>
+      <div class="stat"><b>${s.within}<small style="font-size:.55em;color:var(--mut)"> / ${s.logged}</small></b><span>Within 10%</span></div>
+      <div class="stat"><b>${s.protein}<small style="font-size:.55em;color:var(--mut)"> / ${s.logged}</small></b><span>Protein ≥ 90%</span></div>
+    </div>
+    <div class="pgrid rv">
+      <div class="pcell"><div class="lab">Protein</div><div class="val">${s.p}<small>g of ${t.protein}g</small></div><div class="sub">The macro that matters most for body composition, and the one most often missed</div></div>
+      <div class="pcell"><div class="lab">Carbs</div><div class="val">${s.c}<small>g of ${t.carbs}g</small></div></div>
+      <div class="pcell"><div class="lab">Fat</div><div class="val">${s.f}<small>g of ${t.fat}g</small></div></div>
+      <div class="pcell"><div class="lab">Target source</div><div class="val" style="font-size:15px">${SOURCE_LABEL[t.source]}</div><div class="sub">${srcSub}</div></div>
+    </div>` : ''}
+
+    ${series.length >= 2 ? `
+    <div class="sec rv">Weight trend</div>
+    <div class="card rv">
+      ${sparkline(series)}
+      <div style="display:flex;justify-content:space-around;text-align:center;padding:10px 0 2px">
+        <div class="stat"><b style="font-size:1.25rem">${fmtWeight(series[series.length - 1].trend)}</b><span>Trend now</span></div>
+        <div class="stat"><b style="font-size:1.25rem">${fmtDelta(change)}</b><span>${series.length}-day change</span></div>
+      </div>
+      <p class="mut" style="font-size:12px;line-height:1.55;margin:8px 0 0">Rolling weighted average of your readings — the dots are the scale, the line is the direction.</p>
+    </div>` : ''}
+
+    ${notes.map(n => `<p class="mut rv" style="font-size:12.5px;line-height:1.55;margin:12px 0 0;padding:10px 13px;border:1px solid var(--border);border-radius:10px">${n}</p>`).join('')}
+    <p class="mut rv" style="font-size:11.5px;line-height:1.6;margin-top:18px">Patterns, not grades: a day over or under target is information, not a verdict. Targets — including ones measured from your own data — are estimates for healthy adults, not medical advice.</p>`;
+}
+
+/* ---- gram-level macros, on the plan page ---- */
+function macroSumText(pr, c, f){
+  const kcal = pr*4 + c*4 + f*9;
+  if (!kcal) return '—';
+  const pct = n => Math.round(n / kcal * 100);
+  return `= <b>${kcal} kcal</b> · ${pct(pr*4)}% protein · ${pct(c*4)}% carbs · ${pct(f*9)}% fat`;
+}
+function macroEditor(){
+  const p = state.plan, m = state.prefs.macros, t = effectiveTargets();
+  if (state.macroEditing){
+    const v = m || { protein:p.protein, carbs:p.carbs, fat:p.fat };
+    return `
+      <div class="card rv" style="border-color:var(--ember-mid)">
+        <div class="fl" style="margin-bottom:10px">Set macros in grams</div>
+        <div class="grid2" style="grid-template-columns:1fr 1fr 1fr">
+          <div><label class="fl" for="mcP">Protein</label><input id="mcP" class="inp" type="number" inputmode="numeric" min="0" step="1" value="${v.protein}"></div>
+          <div><label class="fl" for="mcC">Carbs</label><input id="mcC" class="inp" type="number" inputmode="numeric" min="0" step="1" value="${v.carbs}"></div>
+          <div><label class="fl" for="mcF">Fat</label><input id="mcF" class="inp" type="number" inputmode="numeric" min="0" step="1" value="${v.fat}"></div>
+        </div>
+        <div id="mcSum" class="mut" style="font-size:13px;margin-top:10px">${macroSumText(v.protein, v.carbs, v.fat)}</div>
+        <div id="mcErr" style="font-size:12px;min-height:14px;margin-top:4px;color:var(--danger)"></div>
+        <div class="grid2" style="margin-top:10px">
+          <button class="btn" data-act="macroSave">Save macros</button>
+          <button class="btn ghost" data-act="macroCancel">Cancel</button>
+        </div>
+      </div>`;
+  }
+  return `
+    <div class="card click rv" data-act="macroEdit" style="padding:13px 16px">
+      <div class="row">
+        <div>
+          <div style="font-weight:700;font-size:14px">${m ? 'Edit your macros' : 'Set macros in grams'}</div>
+          <div class="mut" style="font-size:12.5px;margin-top:2px">${m ? `Using your own split: P ${m.protein} · C ${m.carbs} · F ${m.fat} = ${t.kcal} kcal` : 'Prefer your own split? Type protein, carbs and fat directly — calories follow.'}</div>
+        </div>
+        <span style="color:var(--ember);font-size:18px">→</span>
+      </div>
+    </div>
+    ${m ? `<p class="rv" style="margin:-4px 0 12px"><button class="linkbtn" data-act="macroReset">Reset to recommended</button></p>` : ''}`;
+}
+function saveMacrosFromForm(){
+  const g = id => +((current.querySelector('#'+id) || {}).value);
+  const pr = g('mcP'), c = g('mcC'), f = g('mcF');
+  const err = current.querySelector('#mcErr');
+  const fail = msg => { if (err) err.textContent = msg; };
+  if (![pr, c, f].every(n => Number.isFinite(n) && n >= 0 && n <= 1500)){ fail('Enter whole grams for all three.'); return; }
+  const kcal = pr*4 + c*4 + f*9;
+  if (kcal < 1300){ fail(`That adds up to ${kcal} kcal — below the 1,300 floor. Going lower works against you.`); return; }
+  if (kcal > 6000){ fail(`That adds up to ${kcal} kcal — check the numbers.`); return; }
+  state.prefs.macros = { protein:Math.round(pr), carbs:Math.round(c), fat:Math.round(f) };
+  state.macroEditing = false;
+  saveState(); refresh();
+}
+/* live sum under the gram inputs; Enter in the weigh-in box saves */
+function bindCoachInputs(page){
+  const ids = ['mcP','mcC','mcF'].map(id => page.querySelector('#'+id));
+  if (ids.every(Boolean)){
+    const upd = () => { const el = page.querySelector('#mcSum'); if (el) el.innerHTML = macroSumText(+ids[0].value||0, +ids[1].value||0, +ids[2].value||0); };
+    for (const el of ids) if (!el._bound){ el._bound = true; el.addEventListener('input', upd); }
+  }
+  const wt = page.querySelector('#wtIn');
+  if (wt && !wt._bound){
+    wt._bound = true;
+    wt.addEventListener('keydown', e => {
+      if (e.key === 'Enter'){ const b = page.querySelector('[data-act="logWeight"]'); if (b) b.click(); }
+    });
+  }
+}
+
 /* ================= ROUTES ================= */
 const ROUTES = {
   goals:    () => nav('Goal Analysis', pageGoals),
-  plan:     () => state.plan ? nav('Your Plan', pagePlanFull) : nav('Goal Analysis', pageGoals),
-  calories: () => nav('Calorie Tracker', pageCalories),
+  plan:     () => { if (coachTick()) saveState(); return state.plan ? nav('Your Plan', pagePlanFull) : nav('Goal Analysis', pageGoals); },
+  calories: () => { if (coachTick()) saveState(); nav('Calorie Tracker', pageCalories); },
+  nutrition:() => { if (coachTick()) saveState(); nav('Nutrition', pageNutrition); },
   workouts: () => nav('Workout Library', pageWorkouts),
   libGoal:  (a) => nav(GOALS.find(x=>x.id===a.g).label, () => pageLibGoal(a)),
   libCat:   (a) => nav(CAT_LABEL[a.cat] || a.cat, () => pageLibCat(a)),
@@ -3631,6 +4241,7 @@ function boot(){
   state.profile = null;
   state.plan = null;
   loadState();                 /* restore the durable slice if a valid one exists */
+  if (coachTick()) saveState(); /* roll a stale diary over, recalibrate if due */
   stack = [{ title:'Menu', build:pageMenu }];
   mountPage(stack[0], 0);
 
