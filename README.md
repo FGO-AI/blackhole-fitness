@@ -94,6 +94,8 @@ Every file prints each thing it checked and exits non-zero on any failure; the r
 | `workout-customization.test.js` | Every dataset set-line parses, swap/reset round-trips, weekday remapping |
 | `render-pages.test.js` | Detail, weekday and plan pages render with balanced markup and no leaked `undefined` |
 | `smoke.test.js` | Every pre-existing page renders in its main states; persistence and auth invariants |
+| `shader.test.js` | Static checks on the fragment shader: uniform parity with JS, declared-vs-used identifiers, one disk-plane read per step, every ported construct present, palette untouched. String-level — not a GL compile |
+| `quality-controller.test.js` | The real adaptive-quality controller driven against modelled 60 Hz / 120 Hz devices: convergence, warm-up, probing, no lockout |
 
 **What green does and does not mean.** The suite proves the *logic* is correct. It does not prove the deployed site is running it — and in this project that gap has bitten more than once. The DOM, WebGL, supabase-js and the service-worker runtime are all mocked, so an assertion that a value reached a mock is proof of wiring, not of behaviour, and the labels say so. After a deploy, the checks that actually answer "is it live and correct" are the ones under [Deploying with GitHub Pages](#deploying-with-github-pages): confirm Pages is serving `main`, confirm the cache key in `sw.js` was bumped when secondary assets changed, and fetch the live page and compare it against `HEAD` rather than trusting the push.
 
@@ -112,5 +114,5 @@ Plain HTML, CSS, and JavaScript in one file. The background uses [Three.js](http
 - **Weight is shown as a trend, not a reading.** The line is a rolling weighted average of your weigh-ins; the dots are what the scale said. Daily scale weight moves 1–2 kg on water and sodium alone, which is why the raw number is not the headline.
 - **Net calories is off by default.** Adding today's training burn to the target is opt-in, because burn figures are estimates and eating them all back is a common way to stall. A measured target already absorbs average training, so the two together can double-count.
 - **Macros can be set in grams** on the plan page. Calories follow the grams, the percentage split is shown alongside, and one tap resets to the recommendation.
-- The background adapts its render quality to measured frame time across four tiers, and honours `prefers-reduced-motion` by rendering a single static frame.
+- The background adapts its render quality to measured frame time across five tiers. It learns the display's real refresh interval rather than assuming 60 Hz, picks a starting tier from the device profile before the first frame, probes upward when it is pinned at vsync and retreats with a growing cooldown if that drops frames — so it can recover from a bad start as well as step down. `__bhPerf()` in the console reports the live tier and frame time. It honours `prefers-reduced-motion` by rendering a single static frame.
 - The black hole is a real-time approximation designed for phones and laptops, not a physically exact render.

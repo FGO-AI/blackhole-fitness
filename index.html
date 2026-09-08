@@ -1336,17 +1336,27 @@ function initBackground(){
   renderer.setClearColor(0x0d0f14, 1);
 
   /* ===== ADAPTIVE QUALITY =====
-     Four tiers from full down to minimum. Each trades render scale, pixel
-     ratio and raymarch step budget. The frame loop measures real render cost
-     and steps between tiers so a weak phone settles low and a laptop stays
-     full — no recompile, just a uniform + a resize. */
+     Five tiers from full down to minimum. Each trades render scale, pixel
+     ratio, raymarch step budget and fbm octaves. The controller further down
+     measures real frame time and steps between them — no recompile, just
+     uniforms + a resize. The floor is deliberately not lower: a 3x phone at
+     0.5 scale was a 6x upscale, which read as smeared rather than cheap. */
   const TIERS = [
-    { scale:0.85, pr:1.5,  steps:260 },   /* 0 · full     */
-    { scale:0.72, pr:1.25, steps:200 },   /* 1 · high     */
-    { scale:0.60, pr:1.0,  steps:150 },   /* 2 · medium   */
-    { scale:0.50, pr:1.0,  steps:96  },   /* 3 · minimum  */
+    { scale:1.00, pr:2.0,  steps:250, oct:6 },   /* 0 · full    */
+    { scale:0.85, pr:1.6,  steps:200, oct:5 },   /* 1 · high    */
+    { scale:0.72, pr:1.35, steps:160, oct:4 },   /* 2 · medium  */
+    { scale:0.62, pr:1.25, steps:130, oct:3 },   /* 3 · low     */
+    { scale:0.55, pr:1.15, steps:110, oct:3 },   /* 4 · minimum */
   ];
+  /* ===== DEVICE PROFILE — a sane starting tier before the first frame, so a
+     weak phone never has to discover its own slowness through a stutter ===== */
+  const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+  const CORES = navigator.hardwareConcurrency || 4;
+  const MEM   = navigator.deviceMemory || 4;
+  const WEAK  = IS_TOUCH && (CORES <= 4 || MEM <= 4);
+  const START_TIER = WEAK ? 2 : (IS_TOUCH ? 1 : 0);
   let tier = 0;
+  let lastTierChange = performance.now();
 
   const scene = new THREE.Scene();
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -1358,7 +1368,9 @@ function initBackground(){
     uRot:  { value: new THREE.Matrix3() },
     uPulse:{ value: 0 },
     uDist: { value: 12.5 },
-    uMaxSteps: { value: 260 },
+    uMaxSteps: { value: 250 },
+    uPixel: { value: 2 / 600 },          /* world units per rendered pixel; set on every resize */
+    uOct:   { value: 6 },                /* fbm octave budget for the current tier */
     uRingSpin: { value: 0 },
     uRingHot:  { value: 0 },
   };
@@ -1367,20 +1379,59 @@ function initBackground(){
 uniform vec2 uRes; uniform float uTime; uniform float uRoll; uniform mat3 uRot; uniform float uPulse; uniform float uDist; uniform float uMaxSteps;
 uniform float uRingSpin;   /* accumulating photon-ring angle (radians) */
 uniform float uRingHot;    /* 0..1 spin energy — drives the traveling hot-spot */
+uniform float uPixel;      /* world units per rendered pixel — anti-aliasing widths scale with it */
+uniform float uOct;        /* fbm octave budget — lower tiers stop the loop early */
 
 float hash(vec2 p){ p = fract(p*vec2(123.34,345.45)); p += dot(p,p+34.345); return fract(p.x*p.y); }
 float noise(vec2 p){
   vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
   return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y);
 }
-float fbm(vec2 p){ float v=0., a=.55; for(int i=0;i<6;i++){ v += a*noise(p); p = p*2.07 + 1.3; a *= .52; } return v; }
+float fbm(vec2 p){ float v=0., a=.55; for(int i=0;i<6;i++){ if(float(i) >= uOct) break; v += a*noise(p); p = p*2.07 + 1.3; a *= .52; } return v; }
+
+/* ---------- orbiting debris: ANALYTIC, once per pixel, never inside the march ----------
+   An earlier attempt sampled rocks per step with a spatial hash: a lookup on
+   every one of ~250 steps, and the rocks were smaller than the step so most
+   were stepped over and flickered. This is a ray-sphere test against the
+   straight camera ray. At r = 9–20 the deflection is small enough that this is
+   visually identical to tracing the bent ray. tHit comes back so the caller
+   can occlude against whatever the marched ray actually reached. */
+vec3 debrisAnalytic(vec3 ro, vec3 rd, float tMax, out float tHit){
+  tHit = 1e9;
+  vec3 best = vec3(0.);
+  for(int i=0; i<10; i++){
+    float fi = float(i);
+    float rr = 9.2 + 1.15*fi;
+    float a  = hash(vec2(fi,3.7))*6.283 + uTime*1.5/pow(rr,1.5);
+    float yy = (hash(vec2(fi,9.1))-0.5)*1.7;
+    vec3  c  = vec3(cos(a)*rr, yy, sin(a)*rr);
+    float rad = 0.17 + 0.20*hash(vec2(fi,5.3));
+
+    vec3 oc = ro - c;
+    float b = dot(oc, rd);
+    float cq = dot(oc,oc) - rad*rad;
+    float disc = b*b - cq;
+    if(disc < 0.) continue;
+    float t = -b - sqrt(max(disc,0.));
+    if(t < 0.05 || t > tMax || t > tHit) continue;
+
+    tHit = t;
+    vec3 hp = ro + rd*t;
+    vec3 n  = normalize(hp - c);
+    float lam = max(dot(n, normalize(-hp)), 0.);
+    float lit = (0.08 + 0.92*lam) * (34.0/(rr*rr));
+    vec3 rock = mix(vec3(.42,.38,.34), vec3(.64,.58,.52), hash(vec2(fi,7.7)));
+    best = rock * lit * vec3(1.,.72,.42) * 2.6;   /* ember-lit */
+  }
+  return best;
+}
 
 /* ---------- (1,9) lensed deep sky: layered stars + galaxies, drift at 0.05x ---------- */
 vec3 sky(vec3 d){
   vec2 sph = vec2(atan(d.z,d.x), asin(clamp(d.y,-1.,1.)));
   sph.x += uTime*0.005;                              /* Layer: background stars 0.05x */
   vec3 col = vec3(0.);
-  for(float l=1.; l<4.5; l++){
+  for(float l=1.; l<3.5; l++){
     vec2 g = sph*vec2(45.,28.)*l;
     vec2 id = floor(g), f = fract(g)-.5;
     float h = hash(id + l*17.3);
@@ -1410,7 +1461,7 @@ vec3 sky(vec3 d){
       q.y *= 2.6 + 2.0*hash(id+12.);
       float dd = length(q);
       float body = exp(-dd*9.)*.55 + exp(-dd*30.)*.6;
-      body *= .75 + .5*fbm(q*14. + id);
+      body *= .75 + .5*(noise(q*14. + id)*0.65 + noise(q*29. + id)*0.35);   /* two octaves; the full fbm was invisible at this scale */
       vec3 tint = mix(vec3(.72,.78,1.), vec3(1.,.86,.70), hash(id+15.));
       col += tint * body * .5;
     }
@@ -1478,6 +1529,12 @@ vec3 disk(float r, float a, vec3 vel, out float alpha){
 void main(){
   vec2 px = gl_FragCoord.xy;
   vec2 p = (px*2. - uRes) / uRes.y;
+  /* p is normalised by height alone, so a portrait phone saw only ±(w/h)
+     horizontally — ±0.46 on a typical phone against the ±1.25 the disk needs,
+     which cropped most of it. Desktop was unaffected, which is why it hid. */
+  float aspect = uRes.x / max(uRes.y, 1.);
+  float fit = clamp(1.28 / max(aspect, 0.05), 1.0, 2.45);
+  p *= fit;
   float cr = cos(uRoll), sr = sin(uRoll);
   p = mat2(cr,-sr,sr,cr) * p;
   float sa = atan(p.y, p.x);
@@ -1498,6 +1555,8 @@ void main(){
   float trans = 1.;
   float minR = 1e4;
   bool captured = false;
+  float windTotal = 0.;   /* how far the ray has swung around the hole, radians — the secondary ring reads it */
+  float traveled  = 0.;   /* path length, so debris can be occluded against what the ray actually reached */
 
   /* (1) geodesic integration — bends both disk hits AND the background sky,
      wrapping stars around the shadow like an infinite fisheye */
@@ -1508,13 +1567,29 @@ void main(){
     if(r < 1.0){ captured = true; break; }     /* (5) crossed horizon */
     if(r > 34.) break;
 
-    float dt = clamp(.14*(r-.8), .028, .40);
+    /* step size: fine near the hole, and no longer crawling through empty space.
+       The cap used to be 0.40 everywhere, so ~70% of steps were spent past r=8
+       where there is nothing to hit; it now opens up with distance. */
+    float dtMax = mix(0.40, 3.2, smoothstep(8.5, 22.0, r));
+    float dt = clamp(.14*(r-.8), .028, dtMax);
+    /* ONE disk-plane read per step, reused by the crossing test below. This
+       site has no precession transform, so it is the position itself; it is
+       named so the invariant stays visible. Near the plane the step shrinks
+       with height above it: a ray crossing at a shallow angle behind the hole
+       used to leap the whole plane in one step, so neighbouring pixels sampled
+       wildly different points — the horizontal streaks across the shadow. */
+    vec3 dPre = pos;
+    float rXZpre = length(dPre.xz);
+    if(rXZpre > 1.9 && rXZpre < 8.2){
+      dt = min(dt, max(abs(dPre.y) * 0.42, 0.016));
+    }
     vec3 acc = -1.5 * h2 * pos / pow(r*r, 2.5);
     vec3 npos = pos + vel*dt;
     vec3 nvel = vel + acc*dt;
+    windTotal += abs(atan(length(cross(pos,npos)), dot(pos,npos)));
 
-    if(pos.y * npos.y < 0.){
-      float k = pos.y / (pos.y - npos.y);
+    if(dPre.y * npos.y < 0.){
+      float k = dPre.y / (dPre.y - npos.y);
       vec3 hit = mix(pos, npos, k);
       float hr = length(hit.xz);
       if(hr > 2.15 && hr < 7.6){
@@ -1526,17 +1601,42 @@ void main(){
       }
     }
     pos = npos; vel = nvel;
+    traveled += dt;
   }
+
+  /* a ray that ran out of budget while still near the hole did not escape —
+     treating it as escaped painted disk light into the shadow */
+  if(!captured && length(pos) < 2.2) captured = true;
 
   /* lensed background sky through the bent ray */
   if(!captured && trans > .02) col += trans * sky(normalize(vel)) * 1.15;
+
+  /* anti-aliased silhouette. Capture is binary, so the shadow's edge used to
+     stair-step at every resolution; fade over ~1.4 rendered pixels of closest
+     approach instead. Before the ring block, so the ring itself is not dimmed. */
+  float pixW = uDist * (uPixel * fit) / 2.05;
+  float silhouette = smoothstep(0.0, pixW * 1.4, minR - 1.0);
+  col *= silhouette;
 
   /* (4) PHOTON RING: tiny, extremely bright, near-white ring hugging the shadow.
      light that grazed the photon sphere piles up here */
   if(!captured){
     float graze = max(minR - 1.0, 0.);
-    /* the thin bright ring — very sharp */
-    float ring = exp(-graze*graze*140.);
+    /* the thin bright ring — very sharp, but never sharper than the pixel
+       grid can hold, or it aliases into a dashed line on low tiers */
+    float ringK = min(140., 0.55/max(uPixel*uPixel, 1e-6));
+    float ring = exp(-graze*graze*ringK);
+    /* secondary and tertiary lensed rings: light that went more than one and a
+       half, then two and a half, times around before escaping. Thinner and
+       tighter each time, and only for rays that actually looped. */
+    float loops = windTotal / 3.14159;
+    float multi = smoothstep(1.35, 2.1, loops);
+    float sringK = min(620., 2.4/max(uPixel*uPixel, 1e-6));
+    float sring = exp(-graze*graze*sringK);
+    col += vec3(1.,.99,.97) * sring * multi * 2.6;
+    float tringK = min(2100., 8.0/max(uPixel*uPixel, 1e-6));
+    float tring = exp(-graze*graze*tringK);
+    col += vec3(1.) * tring * smoothstep(2.0,2.9,loops) * 1.4;
     /* rotating the noise's angular argument makes the existing shimmer sweep
        around the ring during a spin instead of just flickering in place */
     float shimmer = .9 + .2*noise(vec2(sa*3.0 + uRingSpin + uTime*.2, uTime*.5));
@@ -1572,9 +1672,44 @@ void main(){
     col += mix(vec3(1.,.6,.25), vec3(1.,.95,.85), hash(vec2(seed,9.1))) * streak * 1.4;
   }
 
-  /* (5) PURE BLACK CENTER — absolute, no texture, no gradient */
-  if(captured){ gl_FragColor = vec4(0.,0.,0.,1.); return; }
+  /* foreground dust motes — screen-space and cheap. Kept in their OWN variable:
+     dust sits between the camera and the hole, so it has to survive the
+     captured-ray early return below (a mote in front of the shadow is visible). */
+  vec3 dustCol = vec3(0.);
+  {
+    vec3 rdn = normalize(rd);
+    for(float L=1.; L<3.5; L++){
+      vec2 uvp = rdn.xy / max(abs(rdn.z), .18) * (2.2 + L*1.6);
+      uvp += vec2(uTime*0.02*L, uTime*0.013*L);
+      vec2 gid = floor(uvp*3.0);
+      vec2 gf  = fract(uvp*3.0) - .5;
+      float hh = hash(gid + L*29.3);
+      if(hh > .955){
+        vec2 o = (vec2(hash(gid+3.7), hash(gid+8.1)) - .5)*.55;
+        float dd = length(gf - o);
+        float mote = smoothstep(.055, .0, dd);
+        float nearGlow = 1.0 - smoothstep(0.0, 1.1, length(p));
+        dustCol += vec3(1.,.82,.58) * mote * (0.05 + 0.22*nearGlow) / L;
+      }
+    }
+  }
 
+  /* orbiting debris, tested once per pixel. A rock nearer than the ray's
+     endpoint is in front of whatever the ray hit — the shadow included — and
+     wins; anything further is already hidden behind it. */
+  float rockT;
+  vec3 rockCol = debrisAnalytic(ro, normalize(rd), captured ? traveled : 1e8, rockT);
+  bool rockFront = (rockT < 1e8) && (rockT < traveled + 0.001);
+  if(rockFront){
+    gl_FragColor = vec4(rockCol + dustCol, 1.);
+    return;
+  }
+
+  /* (5) PURE BLACK CENTER — absolute, no texture, no gradient. Dust in front of
+     it is the one thing allowed on top. */
+  if(captured){ gl_FragColor = vec4(dustCol, 1.); return; }
+
+  col += dustCol;
   col = 1.0 - exp(-col * 1.5);                        /* filmic exposure */
   col = pow(col, vec3(.92));
   float dither = (hash(px) - .5) / 255.;
@@ -1600,40 +1735,72 @@ void main(){
     renderer.getDrawingBufferSize(dbs);
     uniforms.uRes.value.copy(dbs);
     uniforms.uMaxSteps.value = q.steps;
+    uniforms.uOct.value = q.oct;
+    uniforms.uPixel.value = 2.0 / Math.max(dbs.y, 1);   /* world units per rendered pixel */
   }
-  sizeRenderer();
+  function applyTier(i){
+    tier = Math.max(0, Math.min(TIERS.length - 1, i));
+    sizeRenderer();
+    lastTierChange = performance.now();
+  }
+  /* after the TIERS declaration on purpose: applyTier hoists, the const does not */
+  applyTier(START_TIER);
   addEventListener('resize', sizeRenderer);
 
-  /* ===== FRAME-TIME SAMPLER =====
-     This used to time the renderer.render() call itself. WebGL draw calls are
-     asynchronous — render() queues commands and returns without waiting on the
-     GPU — so on a GPU-bound device (exactly the weak phone the tiers exist for)
-     it reported ~2ms while the frame really took 60ms. The controller read that
-     as "plenty of headroom" and upgraded the device into a worse stutter, then
-     upgraded again. Wall-clock frame delta is what the user actually feels, and
-     it's already computed each frame. */
-  const SAMPLE_MS = 1000, DOWN_MS = 22, UP_MS = 13;   /* ≈45fps floor, ≈75fps ceiling */
-  let frameAccum = 0, frameCount = 0, lastTierAt = performance.now(), lastAvg = 0;
-  let hasSteppedDown = false;
-  function adaptQuality(now, dtMs){
-    frameAccum += dtMs; frameCount++;
-    if (now - lastTierAt < SAMPLE_MS) return;
-    const avg = frameAccum / frameCount;
-    lastAvg = avg;
-    frameAccum = 0; frameCount = 0; lastTierAt = now;
-    if (avg > DOWN_MS && tier < TIERS.length - 1){
-      /* the first correction skips a tier, so a weak device lands near its real
-         budget in one step instead of grinding down one tier per second */
-      tier = Math.min(tier + (hasSteppedDown ? 1 : 2), TIERS.length - 1);
-      hasSteppedDown = true;
-      sizeRenderer();
-    } else if (avg < UP_MS && tier > 0){
-      tier--; sizeRenderer();
+  /* ===== ADAPTIVE QUALITY CONTROLLER =====
+     Wall-clock frame delta is the signal: render() returns before the GPU is
+     done, so timing the call lies on exactly the devices this exists for.
+     Two things the previous controller got wrong. Its upgrade threshold sat
+     below the 60 Hz frame interval — requestAnimationFrame cannot fire faster
+     than 16.7 ms — so it was unreachable and the controller could only ever
+     step DOWN; a shader-compile stall at load dropped it two tiers and it sat
+     at the floor for good. And it assumed 60 Hz.
+     This one learns the display's real refresh interval from the fastest frame
+     it has seen, ignores the first 1.5 s (compile + JIT), and — since a frame
+     pinned at vsync reveals no headroom — PROBES one tier up when pinned and
+     retreats with a growing cooldown if the probe drops frames. There is no
+     permanent lockout in either direction. */
+  let minFrameMs = Infinity, refreshMs = 16.7;
+  let fpsAcc = 0, fpsN = 0, lastCheck = performance.now(), lastAvgMs = 0;
+  let bootAt = performance.now(), coolUntil = 0, probeTier = -1, downgrades = 0;
+  function adapt(t, rawDt){
+    const ms = rawDt * 1000;
+    const warm = (t - bootAt) > 1500;
+    /* learn the refresh interval only once warm: the very first delta is
+       measured from initialisation, not from a previous frame, and can be a
+       few ms — taken at face value it would teach a 60 Hz display it was
+       250 Hz, every tier would then read as "dropping", and the controller
+       would sink to the floor with no way back. */
+    if (ms > 1 && warm) minFrameMs = Math.min(minFrameMs, ms);
+    fpsAcc += rawDt; fpsN++;
+    if (t - lastCheck <= 700) return;
+    const avgMs = (fpsAcc / fpsN) * 1000;
+    lastAvgMs = avgMs;
+    /* never assume a display slower than 60 Hz. By frame timing alone a device
+       rendering at a steady 30 fps is indistinguishable from a 30 Hz display,
+       and taking it for one reads every tier as pinned — the lockout this
+       rewrite exists to remove, in the other direction. Faster displays are
+       still learned from the fastest frame seen. */
+    refreshMs = Math.max(6, Math.min(minFrameMs * 1.02, 17));
+    if (warm){
+      const dropping = avgMs > refreshMs * 1.30;
+      const pinned   = avgMs < refreshMs * 1.08;
+      if (dropping && tier < TIERS.length - 1){
+        const wasProbe = (tier === probeTier);
+        applyTier(tier + 1); downgrades++; probeTier = -1;
+        coolUntil = t + (wasProbe ? 8000 : 3000) * Math.min(downgrades, 4);
+      } else if (pinned && tier > 0 && t > coolUntil && (t - lastTierChange) > 1400){
+        applyTier(tier - 1); probeTier = tier;   /* probe up; retreat if it drops */
+      }
     }
+    fpsAcc = 0; fpsN = 0; lastCheck = t;
   }
-  /* read-only diagnostic: current quality tier + live step budget + last sample */
+  /* read-only diagnostic: tier, budgets, measured frame time and controller state */
   window.__bhPerf = () => ({ tier, steps: uniforms.uMaxSteps.value, scale: TIERS[tier].scale,
-                             avgFrameMs: +lastAvg.toFixed(2), fps: lastAvg ? +(1000/lastAvg).toFixed(1) : 0 });
+                             pr: TIERS[tier].pr, oct: uniforms.uOct.value, uPixel: uniforms.uPixel.value,
+                             avgFrameMs: +lastAvgMs.toFixed(2), fps: lastAvgMs ? +(1000/lastAvgMs).toFixed(1) : 0,
+                             refreshMs: +refreshMs.toFixed(2), probing: tier === probeTier,
+                             coolUntil, downgrades, startTier: START_TIER });
   /* read-only diagnostic: live photon-ring uniforms */
   window.__ringUniforms = () => ({ spin: uniforms.uRingSpin.value, hot: uniforms.uRingHot.value });
 
@@ -1653,7 +1820,8 @@ void main(){
   }
 
   function frame(t){
-    const dt = Math.min((t - lastT) / 1000, 0.05);   // seconds, capped
+    const rawDt = (t - lastT) / 1000;                // true wall-clock delta — the controller's signal
+    const dt = Math.min(rawDt, 0.05);                // seconds, capped — for motion
     lastT = t;
 
     /* THE SPIRAL: scrolling swirls you around the outside of the hole while
@@ -1703,10 +1871,11 @@ void main(){
     uniforms.uPulse.value = 0.5 + 0.5 * Math.sin(t * 0.0007);     /* slow flare pulse */
 
     renderer.render(scene, camera);
-    adaptQuality(t, dt * 1000);
+    adapt(t, rawDt);
 
     if (!RM) requestAnimationFrame(frame);
   }
+  bootAt = performance.now();
   requestAnimationFrame(frame);
 }
 
