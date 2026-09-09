@@ -32,9 +32,24 @@ Concretely, a task is not done until:
   e.g. `the real shader SOURCE reached ShaderMaterial (string check — not
   GL-compiled)`, never `the shader compiled`. Claiming a mock proved real
   behaviour is a known failure mode in this project, not a hypothetical one.
-- **A green suite is not a deploy check.** It proves the logic is correct. It
-  proves nothing about what GitHub Pages is serving. See "Tests" in
-  [README.md](README.md) for the checks that do.
+- **A green suite is not a deploy check.** See "Shipping" below.
+
+## Shipping
+
+Two rules, both earned. Each of these has already failed here once.
+
+- **Bump the cache key in `sw.js` on any commit that touches `index.html` or a
+  cached asset.** `activate` deletes every cache whose key does not match, and
+  that is what clears superseded icons, the manifest and stale CDN copies. The
+  document itself is network-first, so a missed bump no longer strands anyone
+  on an old build the way it did when a forgotten bump left two weeks of
+  shipped work undelivered — but the secondary assets still need it.
+- **A green suite proves the logic, not what GitHub Pages is serving.** The
+  DOM, WebGL, supabase-js and the service-worker runtime are all mocked, so the
+  suite cannot see a deploy at all. After pushing, confirm Pages is serving
+  `main` and not a feature branch, then fetch the live page and compare it
+  against `HEAD` rather than trusting the push. Pages has silently served the
+  wrong branch here before.
 
 ## When a test finds a bug while you are doing something else
 
