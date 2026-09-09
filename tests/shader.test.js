@@ -135,7 +135,7 @@ console.log('\n-- JS wiring --');
   ok('uOct is set from the tier', /uniforms\.uOct\.value = q\.oct;/.test(init));
   ok('five tiers with the raised floor', /\{ scale:0\.55, pr:1\.15, steps:110, oct:3 \}/.test(init) && (init.match(/\{ scale:/g) || []).length === 5);
   ok('applyTier(START_TIER) is called after the TIERS const', init.indexOf('const TIERS = [') < init.indexOf('applyTier(START_TIER);'));
-  ok('bootAt is set immediately before the first requestAnimationFrame', /bootAt = performance\.now\(\);\s*requestAnimationFrame\(frame\);/.test(init));
+  ok('bootAt is set immediately before the first frame is scheduled', /bootAt = performance\.now\(\);\s*schedule\(\);/.test(init) && /function schedule\(\)\{[\s\S]*?requestAnimationFrame\(frame\);/.test(init));
   ok('applyTier records lastTierChange', /function applyTier\(i\)\{[\s\S]*?lastTierChange = performance\.now\(\);/.test(init));
   ok('the old controller is gone', !/DOWN_MS|UP_MS|hasSteppedDown|adaptQuality/.test(init));
   ok('no user-facing quality control was added', !/data-act="(quality|tier)/.test(html));

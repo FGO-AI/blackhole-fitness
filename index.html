@@ -1312,6 +1312,12 @@ function watchAuth(onChange){
    far side of the disk appears folded above and below the hole — like the real thing.
    axes: X = clicks (full 360° flip) · Y = slow ambient · Z = scroll only */
 let curScroll = 0, pullKick = 0;
+/* Last user interaction, for the idle frame cap. Declared out here (like
+   pullKick) because the page system records it — navigation, scroll and taps
+   all count — while the frame loop inside initBackground() reads it. */
+let lastInteraction = performance.now();
+function noteInteraction(){ lastInteraction = performance.now(); }
+addEventListener('pointerdown', noteInteraction, { passive:true });
 /* Photon-ring spin. Declared out here (like pullKick) so nav()/goBack() can
    kick it even when THREE failed to load and the render block never ran.
    RING_KICK / RING_DECAY are tuned together: with velocity decaying as
@@ -1348,13 +1354,34 @@ function initBackground(){
     { scale:0.62, pr:1.25, steps:130, oct:3 },   /* 3 · low     */
     { scale:0.55, pr:1.15, steps:110, oct:3 },   /* 4 · minimum */
   ];
-  /* ===== DEVICE PROFILE — a sane starting tier before the first frame, so a
-     weak phone never has to discover its own slowness through a stutter ===== */
+  /* ===== PHONE-FIRST QUALITY POLICY =====
+     Nearly everyone is on a phone, and this is an ambient background in a
+     utility app: people are here to log food and check a plan, not to watch
+     it. Nothing depends on its input latency, and page scrolling stays
+     native-smooth whatever it does. So rather than sacrificing detail to
+     chase 60 fps, phones target 30 and spend the freed budget on quality.
+     Capping is what makes that safe: a locked 30 uses less power than a
+     ragged attempt at 60, paces more consistently, and leaves thermal
+     headroom so the device does not heat up and throttle everything else.
+     Desktop stays uncapped at vsync. */
   const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
   const CORES = navigator.hardwareConcurrency || 4;
   const MEM   = navigator.deviceMemory || 4;
   const WEAK  = IS_TOUCH && (CORES <= 4 || MEM <= 4);
-  const START_TIER = WEAK ? 2 : (IS_TOUCH ? 1 : 0);
+  /* start at top quality and fall back only if the frame time says so; a weak
+     profile starts one step down so it has less far to fall */
+  const START_TIER = WEAK ? 1 : 0;
+  const ACTIVE_FPS = 30;        /* touch devices, while the user is interacting */
+  const IDLE_FPS   = 20;        /* touch devices, after IDLE_AFTER_MS without interaction */
+  const IDLE_AFTER_MS = 8000;
+  /* Idle throttling is the main battery saver. A fitness app is opened several
+     times a day for a few minutes; pegging the GPU the whole time is real
+     drain for something decorative. The ambient drift is slow enough that
+     20 fps is imperceptible while reading a page, and full rate returns on the
+     next frame after any interaction. Only the CAP changes on idle — never the
+     tier, since a resolution change would visibly pop. */
+  let frameCap = 0;             /* 0 = uncapped (desktop); otherwise the fps ceiling in force */
+  let lowBattery = false, batteryStepped = false;
   let tier = 0;
   let lastTierChange = performance.now();
 
@@ -1782,14 +1809,24 @@ void main(){
        rewrite exists to remove, in the other direction. Faster displays are
        still learned from the fastest frame seen. */
     refreshMs = Math.max(6, Math.min(minFrameMs * 1.02, 17));
+    /* under a cap the target is the cap, not vsync. A capped frame time reveals
+       no headroom either way, so the same probe-and-retreat applies. */
+    const targetMs = frameCap > 0 ? (1000 / frameCap) : refreshMs;
+    /* no upward probes while throttled. Under the idle or low-battery cap a
+       frame time says nothing about the ACTIVE budget, and a tier gained while
+       idle would only be lost again on the next tap — the resolution pop the
+       idle cap exists to avoid. Downgrades still apply: a device that cannot
+       even hold the idle cap must step down. */
+    const throttled = lowBattery || (IS_TOUCH && (t - lastInteraction) > IDLE_AFTER_MS);
     if (warm){
-      const dropping = avgMs > refreshMs * 1.30;
-      const pinned   = avgMs < refreshMs * 1.08;
+      const dropping = avgMs > targetMs * 1.25;
+      const pinned   = avgMs < targetMs * 1.06;
       if (dropping && tier < TIERS.length - 1){
         const wasProbe = (tier === probeTier);
         applyTier(tier + 1); downgrades++; probeTier = -1;
+        /* repeated downgrades usually mean thermal throttling — each buys a longer cooldown */
         coolUntil = t + (wasProbe ? 8000 : 3000) * Math.min(downgrades, 4);
-      } else if (pinned && tier > 0 && t > coolUntil && (t - lastTierChange) > 1400){
+      } else if (pinned && tier > 0 && !throttled && t > coolUntil && (t - lastTierChange) > 1400){
         applyTier(tier - 1); probeTier = tier;   /* probe up; retreat if it drops */
       }
     }
@@ -1800,7 +1837,9 @@ void main(){
                              pr: TIERS[tier].pr, oct: uniforms.uOct.value, uPixel: uniforms.uPixel.value,
                              avgFrameMs: +lastAvgMs.toFixed(2), fps: lastAvgMs ? +(1000/lastAvgMs).toFixed(1) : 0,
                              refreshMs: +refreshMs.toFixed(2), probing: tier === probeTier,
-                             coolUntil, downgrades, startTier: START_TIER });
+                             coolUntil, downgrades, startTier: START_TIER,
+                             frameCap, idle: (performance.now() - lastInteraction) > IDLE_AFTER_MS,
+                             lowBattery, isTouch: IS_TOUCH });
   /* read-only diagnostic: live photon-ring uniforms */
   window.__ringUniforms = () => ({ spin: uniforms.uRingSpin.value, hot: uniforms.uRingHot.value });
 
@@ -1820,7 +1859,18 @@ void main(){
   }
 
   function frame(t){
+    rafPending = false;
+    if (document.hidden) return;                     /* paused; visibilitychange resumes the loop */
+    /* the cap in force this frame — recomputed from the interaction clock every
+       frame rather than toggled by events, so it can never be left stale */
+    const idle = (t - lastInteraction) > IDLE_AFTER_MS;
+    frameCap = lowBattery ? IDLE_FPS : (IS_TOUCH ? (idle ? IDLE_FPS : ACTIVE_FPS) : 0);
     const rawDt = (t - lastT) / 1000;                // true wall-clock delta — the controller's signal
+    /* frame cap. lastT is NOT advanced on a skipped frame: advancing it is the
+       half-speed bug — dt then comes back as one vsync interval instead of the
+       full capped interval, and every animation runs at half rate. */
+    /* a reduced-motion static frame has no rate — never let the cap skip it */
+    if (!RM && frameCap > 0 && rawDt < (1 / frameCap) - 0.002){ schedule(); return; }
     const dt = Math.min(rawDt, 0.05);                // seconds, capped — for motion
     lastT = t;
 
@@ -1872,11 +1922,43 @@ void main(){
 
     renderer.render(scene, camera);
     adapt(t, rawDt);
-
-    if (!RM) requestAnimationFrame(frame);
+    if (!RM) schedule();                             /* reduced motion: this one static frame, then stop */
   }
+  /* one pending frame at a time, so a visibility resume can never start a second loop */
+  let rafPending = false;
+  function schedule(){
+    if (rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(frame);
+  }
+  /* pause entirely while hidden; on return, restart the clock so the gap away
+     does not arrive as one enormous frame and read as a stall */
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || RM) return;              /* frame() sees hidden and stops scheduling */
+    lastT = performance.now(); lastCheck = lastT; fpsAcc = 0; fpsN = 0;
+    schedule();
+  });
+  /* battery: feature-detected and fully optional. The API is absent on iOS
+     Safari, and that has to be a silent no-op, not an error. Low and not
+     charging: idle cap and one tier down; restored when charging resumes. The
+     controller does not probe upward while low, or it would undo this. */
+  try {
+    if (navigator.getBattery){
+      navigator.getBattery().then(b => {
+        const update = () => {
+          const low = b.level < 0.2 && !b.charging;
+          if (low && !batteryStepped){ const was = tier; applyTier(tier + 1); batteryStepped = tier !== was; }   /* already at the floor: nothing to restore later */
+          if (!low && batteryStepped){ applyTier(tier - 1); batteryStepped = false; }
+          lowBattery = low;
+        };
+        update();
+        b.addEventListener('levelchange', update);
+        b.addEventListener('chargingchange', update);
+      }).catch(() => {});
+    }
+  } catch (e) { /* no battery API, or it threw — decorative feature, ignore */ }
   bootAt = performance.now();
-  requestAnimationFrame(frame);
+  schedule();
 }
 
 /* ================= PAGE SYSTEM ================= */
@@ -1914,12 +1996,13 @@ function focusHeading(page){
   h.focus({ preventScroll: true });
 }
 function mountPage(entry, dir, takeFocus){
+  noteInteraction();                 /* navigation counts as interaction for the idle cap */
   state.exSheet = null;              /* never carry a sheet across a page change */
   const page = document.createElement('div');
   page.className = 'page ' + (dir === 1 ? 'enter-r' : dir === -1 ? 'enter-l' : 'live');
   page.innerHTML = `<div class="wrap">${entry.build()}</div>`;
   stage.appendChild(page);
-  page.addEventListener('scroll', () => { curScroll = page.scrollTop; }, { passive:true });
+  page.addEventListener('scroll', () => { curScroll = page.scrollTop; noteInteraction(); }, { passive:true });
   page.querySelectorAll('.rv,.rv-l,.rv-r').forEach(el => io.observe(el));
   bindActions(page);
   bindFoodSearch(page);
