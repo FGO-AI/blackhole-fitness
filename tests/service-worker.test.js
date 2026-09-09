@@ -2,9 +2,11 @@
    and drives genuine fetch events through it. Node can't run a service worker,
    but the handler is just a function over caches/fetch — so mock those and the
    branching, caching and offline behaviour are all directly observable. */
+/* read the shipped source with line endings normalised: git's autocrlf
+   hands Windows a CRLF working copy, and every pattern here matches on \n */
 const fs = require('fs'), vm = require('vm');
 const SW = require('path').join(__dirname, '..', 'sw.js');
-const src = fs.readFileSync(SW, 'utf8');
+const src = fs.readFileSync(SW, 'utf8').replace(/\r\n/g, '\n');
 /* read the current key from source so a routine bump can't break the tests */
 const CACHE = src.match(/const CACHE = '([^']+)'/)[1];
 

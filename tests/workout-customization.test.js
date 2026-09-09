@@ -1,9 +1,11 @@
 /* Exercises the new workout-customization, glossary and weekday-remap logic
    against the real source in index.html. */
+/* read the shipped source with line endings normalised: git's autocrlf
+   hands Windows a CRLF working copy, and every pattern here matches on \n */
 const fs = require('fs'), vm = require('vm');
 
 const HTML = require('path').join(__dirname, '..', 'index.html');
-const js = fs.readFileSync(HTML, 'utf8').match(/<script>\n([\s\S]*)\n<\/script>/)[1];
+const js = fs.readFileSync(HTML, 'utf8').replace(/\r\n/g, '\n').match(/<script>\n([\s\S]*)\n<\/script>/)[1];
 const EXPORTS = ['FOOD_DB','GOALS','ALL_FOODS','state','freshMeals','repairShapes','DURABLE',
                  'WORKOUTS_SPECIALIZED','EXERCISE_DB','DAY_PATTERNS','DAYNAMES','SPLIT_TEMPLATES',
                  'parseSetLine','parseSpec','resolveSlot','setOverride','clearOverride','ovSlot',

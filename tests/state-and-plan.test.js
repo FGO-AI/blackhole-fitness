@@ -1,10 +1,12 @@
 /* Loads the real inline script from index.html (definitions only, stopping
    before the DOM boot block) into a vm sandbox with minimal stubs, so the
    logic changed by the audit fixes can be exercised against real data. */
+/* read the shipped source with line endings normalised: git's autocrlf
+   hands Windows a CRLF working copy, and every pattern here matches on \n */
 const fs = require('fs'), vm = require('vm'), path = require('path');
 
 const HTML = require('path').join(__dirname, '..', 'index.html');
-const src = fs.readFileSync(HTML, 'utf8');
+const src = fs.readFileSync(HTML, 'utf8').replace(/\r\n/g, '\n');
 const js = src.match(/<script>\n([\s\S]*)\n<\/script>/)[1];
 // top-level const/let in a classic script are lexical, not properties of the
 // global object — same as in the browser — so surface what we test explicitly

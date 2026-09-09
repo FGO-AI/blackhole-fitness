@@ -7,8 +7,10 @@
    ported construct. If a pure-JS GLSL parser happens to be resolvable it is
    used for a real SYNTAX parse — still not a compile. Whether the shader
    compiles and renders correctly can only be established in a browser. */
+/* read the shipped source with line endings normalised: git's autocrlf
+   hands Windows a CRLF working copy, and every pattern here matches on \n */
 const fs = require('fs'), path = require('path');
-const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8').replace(/\r\n/g, '\n');
 
 let pass = 0, fail = 0;
 const ok = (n, c, e = '') => { if (c) { pass++; console.log('  PASS  ' + n); }

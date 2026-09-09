@@ -1,5 +1,7 @@
 /* Activity Log period bucketing. Boundary cases use FIXED calendar dates with
    hand-computed expectations, so nothing here depends on when it's run. */
+/* read the shipped source with line endings normalised: git's autocrlf
+   hands Windows a CRLF working copy, and every pattern here matches on \n */
 const fs = require('fs'), vm = require('vm');
 /* freeze the clock INSIDE the sandbox before the app script evaluates, so
    nothing here depends on the day it is run — same instant the date-boundary
@@ -7,7 +9,7 @@ const fs = require('fs'), vm = require('vm');
 const FIXED_NOW = new Date(2026, 5, 17, 14, 30).getTime();
 const FREEZE_CLOCK = 'const __F=' + FIXED_NOW + ';class FakeDate extends Date{constructor(...a){super(...(a.length?a:[__F]))}static now(){return __F}};globalThis.Date=FakeDate;';
 const HTML = require('path').join(__dirname, '..', 'index.html');
-const js = fs.readFileSync(HTML, 'utf8').match(/<script>\n([\s\S]*)\n<\/script>/)[1];
+const js = fs.readFileSync(HTML, 'utf8').replace(/\r\n/g, '\n').match(/<script>\n([\s\S]*)\n<\/script>/)[1];
 const EX = ['state','freshMeals','repairShapes','startOfDay','addDays','startOfMonth','addMonths',
             'startOfWeek','doneTime','periodRange','priorRange','inRange','doneStats','pageLog',
             'logDate','LOG_PERIODS'];

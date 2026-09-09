@@ -2,6 +2,8 @@
    earlier per-feature harnesses were lost with the scratchpad, so this is a
    coarse net: every page renders in its main states with balanced tags and no
    leaked undefined/NaN, and the persistence + auth invariants still hold. */
+/* read the shipped source with line endings normalised: git's autocrlf
+   hands Windows a CRLF working copy, and every pattern here matches on \n */
 const fs = require('fs'), vm = require('vm');
 /* freeze the clock INSIDE the sandbox before the app script evaluates, so
    nothing here depends on the day it is run — same instant the date-boundary
@@ -9,7 +11,7 @@ const fs = require('fs'), vm = require('vm');
 const FIXED_NOW = new Date(2026, 5, 17, 14, 30).getTime();
 const FREEZE_CLOCK = 'const __F=' + FIXED_NOW + ';class FakeDate extends Date{constructor(...a){super(...(a.length?a:[__F]))}static now(){return __F}};globalThis.Date=FakeDate;';
 const HTML = require('path').join(__dirname, '..', 'index.html');
-const js = fs.readFileSync(HTML, 'utf8').match(/<script>\n([\s\S]*)\n<\/script>/)[1];
+const js = fs.readFileSync(HTML, 'utf8').replace(/\r\n/g, '\n').match(/<script>\n([\s\S]*)\n<\/script>/)[1];
 
 let pass = 0, fail = 0;
 const ok = (n, c, e = '') => { if (c) { pass++; console.log('  PASS  ' + n); }

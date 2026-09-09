@@ -5,9 +5,11 @@
    reads `new Date()` or Date.now(), and both come from a FakeDate installed in
    the sandbox, so the arithmetic is deterministic regardless of when this
    runs. String-level proof only: no browser, nothing painted. */
+/* read the shipped source with line endings normalised: git's autocrlf
+   hands Windows a CRLF working copy, and every pattern here matches on \n */
 const fs = require('fs'), vm = require('vm');
 const HTML = require('path').join(__dirname, '..', 'index.html');
-const js = fs.readFileSync(HTML, 'utf8').match(/<script>\n([\s\S]*)\n<\/script>/)[1];
+const js = fs.readFileSync(HTML, 'utf8').replace(/\r\n/g, '\n').match(/<script>\n([\s\S]*)\n<\/script>/)[1];
 
 let pass = 0, fail = 0;
 const ok = (n, c, e = '') => { if (c) { pass++; console.log('  PASS  ' + n); }

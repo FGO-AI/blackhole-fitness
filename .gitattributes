@@ -1,0 +1,11 @@
+# Line endings are pinned to LF in the working copy, not just in the repo.
+#
+# Git stores LF and, with core.autocrlf=true (the Windows default), hands the
+# working copy CRLF on checkout. The tests read the real index.html and sw.js
+# and match on \n, so a rebase, pull or fresh clone on Windows produced a
+# working copy every test crashed on. The tests normalise line endings at the
+# read as well — this is the other half, so that anything else reading these
+# files sees what the repo actually contains.
+*           text=auto eol=lf
+*.png       binary
+*.ico       binary
