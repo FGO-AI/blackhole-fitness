@@ -180,6 +180,9 @@ h1{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(1.9rem,6vw
 /* ============ ANALYSIS WIZARD ============ */
 .inp{background:rgba(22,26,35,.82);border:1px solid var(--border);border-radius:10px;padding:12px 14px;color:var(--ink);font-size:15px;width:100%;font-family:inherit;outline:none;box-sizing:border-box;transition:border-color .25s}
 .inp:focus{border-color:var(--accent)}
+textarea.inp{min-height:112px;resize:vertical;line-height:1.55}
+/* a field the parser could not fill: marked, never silently defaulted */
+.needs{color:var(--danger);font-size:11px;letter-spacing:.12em;text-transform:uppercase;margin:-10px 0 14px}
 .fl{display:block;font-size:11px;letter-spacing:.22em;color:var(--mut);margin:0 0 6px;text-transform:uppercase;font-weight:600}
 .field{margin-bottom:14px}
 .chiprow{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 16px}
@@ -923,6 +926,8 @@ const state = {
   authMsg:'',                  /* sign-in form feedback text */
   authMode:'signin',           /* signin | signup — one form, two modes */
   lastSyncedAt:null,           /* app_data.updated_at, for "last synced" */
+  /* ---- free-text intake (transient; never persisted, never synced) ---- */
+  intake:{ text:'', busy:false, error:'', parsed:null, fallbackMsg:'' },
 };
 const ALL_FOODS = Object.entries(FOOD_DB).flatMap(([cat, items]) => items.map(f => ({...f, cat})));
 const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -2260,6 +2265,60 @@ function runAction(el, page){
           setTimeout(goBack, 650);
         }
       }
+      /* --- free-text intake --- */
+      if (a.act === 'useWizard'){
+        state.intake.fallbackMsg = '';
+        stack = stack.slice(0, 1);
+        nav('Goal Analysis', pageGoals); return;
+      }
+      if (a.act === 'intakeEg') {
+        state.intake.text = INTAKE_EXAMPLES[+a.i] || '';
+        state.intake.error = '';
+        refresh(); return;
+      }
+      if (a.act === 'intakeGo') {
+        if (state.intake.busy) return;
+        const box = current.querySelector('#f-intake');
+        const text = ((box && box.value) || '').trim();
+        state.intake.text = text.slice(0, MAX_INTAKE);
+        if (!text){
+          state.intake.error = 'Write a line or two first — or pick one of the examples below.';
+          refresh(); return;
+        }
+        state.intake.error = ''; state.intake.busy = true; refresh();
+        parseGoalText(state.intake.text).then(res => {
+          state.intake.busy = false;
+          if (res.blocked){
+            state.intake.parsed = null;
+            nav('A moment', () => pageSupport(res.message)); return;
+          }
+          if (res.fail){ intakeFallback(res.fail); return; }
+          state.intake.parsed = res.parsed;
+          state.draft = draftFromParsed(res.parsed);
+          nav('Check this', pageConfirm);
+        });
+        return;
+      }
+      if (a.act === 'pickField'){
+        const f = a.f, v = f === 'days' ? +a.v : a.v;
+        state.draft[f] = (state.draft[f] === v) ? null : v;
+        /* a weekday list that no longer matches the count is not an answer */
+        if (f === 'days'){
+          const td = state.draft.trainingDays;
+          if (!Array.isArray(td) || td.length !== +state.draft.days) state.draft.trainingDays = null;
+        }
+        refresh(); return;
+      }
+      if (a.act === 'toggleAvoid' || a.act === 'toggleKit'){
+        const key = a.act === 'toggleAvoid' ? 'avoid' : 'equipDetail';
+        const cur = Array.isArray(state.draft[key]) ? state.draft[key] : [];
+        state.draft[key] = cur.indexOf(a.v) >= 0 ? cur.filter(x => x !== a.v) : [...cur, a.v];
+        refresh(); return;
+      }
+      if (a.act === 'confirmNext'){
+        if (CONFIRM_FIELDS.some(x => state.draft[x.f] == null)) return;   /* button is also disabled */
+        nav('About You', pageAbout); return;
+      }
       /* --- analysis wizard --- */
       if (a.act === 'wizGoal')  { state.draft = { goal:a.id, units:'metric' }; nav('About You', pageAbout); }
       if (a.act === 'wizSex')   { readAbout(page); state.draft.sex = a.id; refresh(); }
@@ -2271,7 +2330,7 @@ function runAction(el, page){
         if (err){ if (box) box.textContent = err; return; }
         nav('Lifestyle', pageActivity);
       }
-      if (a.act === 'wizAct')   { state.draft.activity = +a.v; state.draft.actLabel = a.label; nav('Experience', pageExp); }
+      if (a.act === 'wizAct')   { state.draft.activity = +a.v; state.draft.actLabel = a.label; afterLifestyle(); }
       if (a.act === 'wizExp')   { state.draft.exp = a.id; nav('Schedule', pageDays); }
       if (a.act === 'wizDays')  {
         state.draft.days = +a.v;
@@ -2298,6 +2357,8 @@ function runAction(el, page){
           state.daysEditing = false;
           saveState();
           goBack();                       /* the plan page rebuilds with the new schedule */
+        } else if (state.draft.src === 'text'){
+          commitProfile();        /* free text already answered the equipment step */
         } else {
           nav('Equipment', pageEquip);
         }
@@ -2310,16 +2371,7 @@ function runAction(el, page){
         nav('Training Days', pageWeekdays);
         return;
       }
-      if (a.act === 'wizEquip') {
-        state.draft.equip = a.id;
-        state.profile = { ...state.draft };
-        state.goal = state.profile.goal;
-        state.plan = computePlan();
-        /* the recommendation just changed, so hand-set grams no longer refer to it */
-        state.prefs.macros = null; state.macroEditing = false;
-        saveState();                  /* first point in the wizard that writes durable state */
-        nav('Your Plan', pagePlanFull);
-      }
+      if (a.act === 'wizEquip') { state.draft.equip = a.id; commitProfile(); }
       /* drop the wizard pages this was launched from, so Back doesn't walk
          the user through a chain of stale steps rendering the new draft */
       if (a.act === 'retake')   { stack = stack.slice(0, 1); ROUTES.goals(); }
@@ -2805,7 +2857,9 @@ function pageMenu(){
     { t:"Workout Library", d:"Every session, organized by what it does for you", route:"workouts" },
     { t:"Activity Log",    d:"Everything you've burned so far", route:"log" },
   ] : [
-    { t:"Goal Analysis",   d:"Seven quick questions — get calories, macros and a weekly schedule built for you", route:"goals" },
+    { t:"Goal Analysis",   d:state.session
+        ? "Describe what you want in your own words — or answer seven quick questions"
+        : "Seven quick questions — get calories, macros and a weekly schedule built for you", route:"goals" },
     { t:"Calorie Tracker", d:"Log fuel against your daily target", route:"calories" },
     { t:"Nutrition",       d:"How your intake and weight are actually trending", route:"nutrition" },
     { t:"Workout Library", d:"Every session, organized by what it does for you", route:"workouts" },
@@ -2831,12 +2885,277 @@ function pageMenu(){
     ${pf ? `<p class="rv" style="text-align:center;margin:0 0 14px"><button class="linkbtn" data-act="clearData">Clear my data</button></p>` : ''}`;
 }
 
+/* ================= FREE-TEXT INTAKE =================
+   A different way to ANSWER the analysis, not a different way to build the
+   plan. The Edge Function turns a sentence into the same draft fields the tap
+   wizard fills in; computePlan() is then called on that draft by exactly the
+   same commit path. Nothing here computes a target, a macro or a session.
+
+   The tap wizard stays reachable from every failure and from a link on the
+   first screen — it is the guaranteed path, and this is the enhancement. */
+const MAX_INTAKE = 500;
+const PARSE_URL = SUPABASE_URL + '/functions/v1/parse-goal';
+const PARSE_TIMEOUT_MS = 20000;
+/* Below this, a parsed value is shown as unanswered rather than pre-selected.
+   The cost of a wrong pre-selection is a silently wrong plan; the cost of an
+   extra tap is a tap. */
+const CONF_MIN = 0.6;
+
+const INTAKE_EXAMPLES = [
+  'Lose about 15 lb, 4 days a week, dumbbells at home',
+  "Build muscle, gym access, 5 days, I've lifted for a couple years",
+  'Get my cardio back, 3 days, bad knees so nothing high-impact',
+];
+
+/* Why each failure sends someone to the questions, in their words. Every one
+   of these ends in the working wizard — there is no dead end and no spinner
+   that never resolves. */
+const INTAKE_FALLBACK = {
+  auth:     'The written version needs you signed in. These questions work either way.',
+  offline:  "You're offline, so the written version can't run. These questions work without a connection.",
+  rate:     "That's as many written descriptions as this account can send in an hour. These questions have no limit.",
+  timeout:  'The written version took too long to answer. These questions are quicker anyway.',
+  down:     "The written version isn't reachable right now. Nothing is lost — these questions do the same job.",
+  unusable: "I couldn't pull anything usable out of that. These questions will get there.",
+};
+
+/* The Edge Function validates its own output, but the client decides what
+   reaches state, and every one of these vocabularies already lives here.
+   Anything outside them becomes null, which the confirm screen renders as a
+   question rather than an assumption. */
+function sanitizeParsed(p){
+  if (!p || typeof p !== 'object') return null;
+  const one = (v, list) => (typeof v === 'string' && list.indexOf(v) >= 0) ? v : null;
+  const many = (v, list) => Array.isArray(v)
+    ? [...new Set(v.filter(x => list.indexOf(x) >= 0))] : [];
+  const unit = v => Number.isFinite(+v) ? Math.min(1, Math.max(0, +v)) : 0;
+  const c = (p.confidence && typeof p.confidence === 'object') ? p.confidence : {};
+  const days = [3,4,5,6].indexOf(+p.days) >= 0 ? +p.days : null;
+  const td = Array.isArray(p.trainingDays)
+    ? [...new Set(p.trainingDays.filter(d => Number.isInteger(d) && d >= 0 && d <= 6))].sort((a,b) => a - b)
+    : null;
+  return {
+    goal:  one(p.goal, GOALS.map(g => g.id)),
+    days,
+    equip: one(p.equip, Object.keys(EQUIP_LEVELS)),
+    exp:   one(p.exp, Object.keys(EXP_NOTE)),
+    equipDetail: many(p.equipDetail, EQUIP_VOCAB),
+    avoid:       many(p.avoid, AVOID_VOCAB),
+    trainingDays: (td && days && td.length === days) ? td : null,
+    confidence: { goal:unit(c.goal), days:unit(c.days), equip:unit(c.equip), exp:unit(c.exp) },
+    unparsed: Array.isArray(p.unparsed)
+      ? p.unparsed.filter(u => typeof u === 'string' && u.trim()).slice(0, 5).map(u => u.trim().slice(0, 160))
+      : [],
+    summary: typeof p.summary === 'string' ? p.summary.trim().slice(0, 240) : '',
+  };
+}
+
+/* Returns {parsed} | {blocked, message} | {fail:<key of INTAKE_FALLBACK>}.
+   Never throws, and never returns a half state — the caller has exactly three
+   cases to handle. */
+async function parseGoalText(text){
+  if (!supa || !state.session) return { fail:'auth' };
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return { fail:'offline' };
+
+  let token = '';
+  try {
+    const { data } = await supa.auth.getSession();
+    token = (data && data.session && data.session.access_token) || '';
+  } catch (e) { return { fail:'auth' }; }
+  if (!token) return { fail:'auth' };
+
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = setTimeout(() => { if (ctl) ctl.abort(); }, PARSE_TIMEOUT_MS);
+  try {
+    const res = await fetch(PARSE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', 'Authorization':'Bearer ' + token },
+      body: JSON.stringify({ text }),
+      signal: ctl ? ctl.signal : undefined,
+    });
+    let body = null;
+    try { body = await res.json(); } catch (e) { body = null; }
+    if (res.status === 429) return { fail:'rate' };
+    if (!res.ok || !body) return { fail:'down' };
+    /* the safety response is fixed server-side; the client only displays it */
+    if (body.blocked) return { blocked:true, message: String(body.message || '') };
+    const parsed = sanitizeParsed(body.parsed);
+    if (!parsed) return { fail:'unusable' };
+    return { parsed };
+  } catch (e) {
+    return { fail: (e && e.name === 'AbortError') ? 'timeout' : 'down' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* Only fields the parser was confident about are pre-selected. A null or a
+   low-confidence value arrives unset, and the confirm screen marks it. */
+function draftFromParsed(p){
+  const keep = f => (p[f] != null && p.confidence[f] >= CONF_MIN) ? p[f] : null;
+  const days = keep('days');
+  const td = (p.trainingDays && days && p.trainingDays.length === days)
+    ? p.trainingDays.slice() : null;
+  return {
+    src:'text', units:'metric',
+    goal: keep('goal'), days, equip: keep('equip'), exp: keep('exp'),
+    equipDetail: p.equipDetail.slice(), avoid: p.avoid.slice(), trainingDays: td,
+  };
+}
+
+/* Hand the user to the tap wizard, saying why. Used by every failure path. */
+function intakeFallback(key){
+  state.intake.busy = false;
+  state.intake.fallbackMsg = INTAKE_FALLBACK[key] || INTAKE_FALLBACK.down;
+  stack = stack.slice(0, 1);
+  nav('Goal Analysis', pageGoals);
+}
+
+/* --- free-text step 1: describe it --- */
+function pageDescribe(){
+  const it = state.intake;
+  return `
+    <div class="kicker rv">Goal Analysis</div>
+    <h1 class="rv">Tell me what<br>you're after.</h1>
+    <p class="lede rv">Your goal, how often you can train, what equipment you have, anything to work around. Plain words are fine — and you get to check and correct everything before a plan is built.</p>
+    <div style="height:22px"></div>
+    <div class="card rv">
+      <div class="field"><label class="fl">In your own words</label>
+        <textarea class="inp" id="f-intake" rows="4" maxlength="${MAX_INTAKE}"
+          placeholder="e.g. I want to drop some weight, I can train four days a week, and I've got a pair of dumbbells at home.">${escHtml(it.text)}</textarea></div>
+      <div class="mut" style="font-size:12px;margin:-8px 0 12px">Up to ${MAX_INTAKE} characters. Your description is read once to fill in the form — it is not stored.</div>
+      <div class="err" id="err">${escHtml(it.error)}</div>
+      <button class="btn" data-act="intakeGo" ${it.busy ? 'disabled' : ''}>${it.busy ? 'Reading that…' : 'Continue →'}</button>
+    </div>
+    <p class="mut rv" style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;margin:24px 0 8px;text-align:center">Or start from one of these</p>
+    ${INTAKE_EXAMPLES.map((ex, i) => `
+      <div class="opt ${i%2 ? 'rv-r':'rv-l'}" data-act="intakeEg" data-i="${i}">
+        <div><div class="d">${escHtml(ex)}</div></div>
+        <span class="arrow">→</span>
+      </div>`).join('')}
+    <p class="rv" style="text-align:center;margin:24px 0 10px">
+      <button class="linkbtn" data-act="useWizard">Answer a few questions instead</button></p>`;
+}
+
+/* The four fields a plan cannot be built without, as the same chip rows the
+   wizard uses. Values are strings in the DOM; `days` is coerced on the way in. */
+const CONFIRM_FIELDS = [
+  { f:'goal',  label:'What you\'re training for', opts: GOALS.map(g => ({ v:g.id, l:g.label })) },
+  { f:'days',  label:'Days a week',               opts: [3,4,5,6].map(n => ({ v:n, l:n + ' days' })) },
+  { f:'equip', label:'What you\'ve got',          opts: [{v:'none',l:'Just my body'},{v:'basic',l:'Some dumbbells'},{v:'gym',l:'Full gym'}] },
+  { f:'exp',   label:'How long you\'ve trained',  opts: [{v:'beginner',l:'New to this'},{v:'intermediate',l:'Been at it'},{v:'advanced',l:'Seasoned'}] },
+];
+const AVOID_LABEL = {
+  running:'Running', jumping:'Jumping / impact', overhead:'Overhead pressing',
+  'heavy-spinal':'Heavy back loading', swimming:'Swimming',
+};
+const EQUIP_DETAIL_LABEL = {
+  none:'Bodyweight', dumbbell:'Dumbbells', barbell:'Barbell', machine:'Machines',
+  'cardio-machine':'Cardio machines', kettlebell:'Kettlebell', bands:'Bands',
+  pool:'Pool', bike:'Bike', specialty:'Specialty kit',
+};
+
+const toggleChips = (act, labels, on) => `<div class="chiprow">${Object.keys(labels).map(k =>
+  `<span class="chip${on.indexOf(k) >= 0 ? ' on' : ''}" data-act="${act}" data-v="${escHtml(k)}"
+     role="checkbox" aria-checked="${on.indexOf(k) >= 0}">${escHtml(labels[k])}</span>`).join('')}</div>`;
+
+/* --- free-text step 2: confirm what was understood (never skippable) --- */
+function pageConfirm(){
+  const d = state.draft, p = state.intake.parsed;
+  if (!p) return pageDescribe();          /* refreshed with nothing to confirm */
+  const missing = CONFIRM_FIELDS.filter(x => d[x.f] == null);
+  const ready = missing.length === 0;
+
+  return `
+    <div class="kicker rv">Goal Analysis · check this</div>
+    <h1 class="rv">Here's what<br>I understood.</h1>
+    ${p.summary ? `<p class="lede rv">${escHtml(p.summary)}</p>` : ''}
+    <p class="mut rv" style="font-size:13.5px;line-height:1.6;margin:-6px 0 0">Change anything that's off. Nothing is calculated until you continue.</p>
+    <div style="height:22px"></div>
+
+    ${missing.length ? `<div class="card rv" style="border-color:var(--danger);padding:13px 16px;margin-bottom:12px">
+      <div class="fl" style="margin-bottom:5px">${missing.length} still to answer</div>
+      <p class="mut" style="font-size:13px;line-height:1.55;margin:0">I couldn't tell from what you wrote, so I've left ${missing.length === 1 ? 'it' : 'them'} blank rather than guess: ${
+        escHtml(missing.map(x => x.label.toLowerCase()).join(', '))}.</p>
+    </div>` : ''}
+
+    <div class="card rv">
+      ${CONFIRM_FIELDS.map(x => `
+        <label class="fl">${escHtml(x.label)}</label>
+        <div class="chiprow">${x.opts.map(o =>
+          `<span class="chip${String(d[x.f]) === String(o.v) ? ' on' : ''}" data-act="pickField"
+             data-f="${x.f}" data-v="${escHtml(String(o.v))}">${escHtml(o.l)}</span>`).join('')}</div>
+        ${d[x.f] == null ? '<div class="needs">Needs an answer</div>' : ''}`).join('')}
+    </div>
+
+    ${d.days ? `
+    <div class="card rv">
+      <label class="fl" id="dayLabel">Which days${d.trainingDays ? '' : ' — optional, you can pick these later'}</label>
+      <div class="daygrid" role="group" aria-labelledby="dayLabel">
+        ${DAYNAMES.map((dn, i) => `
+          <span class="daychip ${(d.trainingDays || []).indexOf(i) >= 0 ? 'on' : ''}" data-act="toggleDay" data-d="${i}"
+                aria-pressed="${(d.trainingDays || []).indexOf(i) >= 0}">${dn}</span>`).join('')}
+      </div>
+      <div class="mut" style="font-size:12.5px;margin-top:8px">${
+        (d.trainingDays || []).length === d.days
+          ? 'Rest days fill in around these.'
+          : `Pick exactly ${d.days}, or leave it and choose after the next couple of questions.`}</div>
+    </div>` : ''}
+
+    <div class="card rv">
+      <label class="fl">Anything to work around</label>
+      ${toggleChips('toggleAvoid', AVOID_LABEL, d.avoid || [])}
+      <div class="mut" style="font-size:12.5px;margin:-8px 0 0">Whatever is on here is filtered out of your week. This is exercise selection, not medical advice — check with a professional about a specific condition.</div>
+    </div>
+
+    ${(d.equipDetail || []).length ? `
+    <div class="card rv">
+      <label class="fl">The kit you named</label>
+      ${toggleChips('toggleKit', EQUIP_DETAIL_LABEL, d.equipDetail)}
+      <div class="mut" style="font-size:12.5px;margin:-8px 0 0">More precise than the three levels above, so this is what your sessions are picked from.</div>
+    </div>` : ''}
+
+    ${p.unparsed.length ? `
+    <div class="card rv" style="border-color:var(--ember-mid)">
+      <div class="fl" style="margin-bottom:6px">What I couldn't factor in</div>
+      <p class="mut" style="font-size:13px;line-height:1.6;margin:0 0 8px">These are real, and the plan does not account for them:</p>
+      <ul class="mut" style="font-size:13px;line-height:1.65;margin:0;padding-left:18px">
+        ${p.unparsed.map(u => `<li>${escHtml(u)}</li>`).join('')}
+      </ul>
+    </div>` : ''}
+
+    <button class="btn rv" data-act="confirmNext" ${ready ? '' : 'disabled'}>${
+      ready ? 'Looks right — continue →' : `Answer ${missing.length} more to continue`}</button>
+    <p class="rv" style="text-align:center;margin:18px 0 10px">
+      <button class="linkbtn" data-act="useWizard">Start over with the questions</button></p>`;
+}
+
+/* --- the safety response ---
+   The wording is fixed on the server and shown here verbatim; this page only
+   frames it. No plan, no targets, no numbers of any kind on this screen, and
+   the questionnaire stays one tap away rather than being taken off the table. */
+function pageSupport(message){
+  return `
+    <div class="kicker rv">Goal Analysis</div>
+    <h1 class="rv">Let's pause<br>here.</h1>
+    <div style="height:18px"></div>
+    <div class="card rv" style="border-color:var(--ember-mid)">
+      ${String(message || '').split('\n\n').map(para =>
+        `<p class="mut" style="font-size:14.5px;line-height:1.75;margin:0 0 14px">${escHtml(para)}</p>`).join('')}
+    </div>
+    <p class="rv" style="text-align:center;margin:22px 0 10px">
+      <button class="linkbtn" data-act="useWizard">Answer the questions instead</button></p>`;
+}
+
 /* --- wizard step 1: goal --- */
 function pageGoals(){
   return `
     <div class="kicker rv">Analysis · step 1 of 7</div>
     <h1 class="rv">What are you<br>training for?</h1>
     <p class="lede rv">Every answer from here on tunes your calories, macros and weekly schedule.</p>
+    ${state.intake.fallbackMsg ? `<div class="card rv" style="border-color:var(--ember-mid);padding:13px 16px;margin-top:18px">
+      <p class="mut" style="font-size:13px;line-height:1.55;margin:0">${escHtml(state.intake.fallbackMsg)}</p>
+    </div>` : ''}
     <div style="height:26px"></div>
     ${GOALS.map((g,i)=>`
       <div class="opt ${i%2 ? 'rv-r':'rv-l'}" data-act="wizGoal" data-id="${g.id}">
@@ -2959,7 +3278,7 @@ function pageWeekdays(){
   const editing = !!state.daysEditing;
   const ready = sel.length === count;
   return `
-    <div class="kicker rv">${editing ? 'Your plan' : 'Analysis · step 6 of 7'}</div>
+    <div class="kicker rv">${editing ? 'Your plan' : d.src === 'text' ? 'Goal Analysis · last one' : 'Analysis · step 6 of 7'}</div>
     <h1 class="rv">${editing ? 'Move your<br>training days.' : 'Which days<br>suit you?'}</h1>
     <p class="lede rv">Same plan, same order of sessions — this only decides which weekdays they land on. Pick exactly <b class="em">${count}</b>.</p>
     <div style="height:22px"></div>
@@ -2997,6 +3316,36 @@ function pageEquip(){
         <div><div class="t">${e.l}</div><div class="d">${e.d}</div></div>
         <span class="arrow">→</span>
       </div>`).join('')}`;
+}
+
+/* The one place a finished draft becomes the live profile and plan. The tap
+   wizard and the free-text path both end here, so the two cannot drift: a
+   profile assembled from a sentence is committed by exactly the code that
+   commits one assembled from seven taps. */
+function commitProfile(){
+  state.profile = { ...state.draft };
+  state.goal = state.profile.goal;
+  state.plan = computePlan();
+  /* the recommendation just changed, so hand-set grams no longer refer to it */
+  state.prefs.macros = null; state.macroEditing = false;
+  saveState();                  /* first point in either path that writes durable state */
+  nav('Your Plan', pagePlanFull);
+}
+
+/* Where the lifestyle step goes next. The tap wizard walks on through its
+   own steps. The free-text path already has experience, days and equipment
+   from the confirm screen, so the only thing that can still be missing is
+   which weekdays — and activity is asked in both paths because the parser
+   contract has no field for it and TDEE cannot be computed without it. */
+function afterLifestyle(){
+  if (state.draft.src !== 'text'){ nav('Experience', pageExp); return; }
+  const n = +state.draft.days;
+  if (Array.isArray(state.draft.trainingDays) && state.draft.trainingDays.length === n){
+    commitProfile(); return;
+  }
+  state.draft.trainingDays = [...(DAY_PATTERNS[n] || DAY_PATTERNS[4])];
+  state.daysEditing = false;
+  nav('Training Days', pageWeekdays);
 }
 
 /* --- the personalized plan --- */
@@ -4564,7 +4913,10 @@ function bindCoachInputs(page){
 
 /* ================= ROUTES ================= */
 const ROUTES = {
-  goals:    () => nav('Goal Analysis', pageGoals),
+  /* Free text is the default way in; the tap wizard keeps its own route so
+     every fallback, and the link on the first screen, can reach it. */
+  goals:    () => nav('Goal Analysis', state.session ? pageDescribe : pageGoals),
+  wizard:   () => nav('Goal Analysis', pageGoals),
   plan:     () => { if (coachTick()) saveState(); return state.plan ? nav('Your Plan', pagePlanFull) : nav('Goal Analysis', pageGoals); },
   calories: () => { if (coachTick()) saveState(); nav('Calorie Tracker', pageCalories); },
   nutrition:() => { if (coachTick()) saveState(); nav('Nutrition', pageNutrition); },
