@@ -428,114 +428,114 @@ const GOALS = [
 const WORKOUTS_SPECIALIZED = {
   lose:{
     fatburn:[
-      {name:"HIIT Circuit",duration:25,burn:320,tag:"Fat Burn",sets:["Jump squats x20","Burpees x15","Mountain climbers x30","Rest 30s"]},
-      {name:"Tabata Pyramid",duration:20,burn:260,tag:"Fat Burn",sets:["20s all-out / 10s rest x8 rounds","Rotate: push-ups, jump squats, burpees, mountain climbers"]},
-      {name:"20-Min Kettlebell Burn",duration:20,burn:280,tag:"Fat Burn",sets:["Kettlebell swings 45s","Rest 15s x12 rounds"]},
-      {name:"Stair Sprints",duration:20,burn:300,tag:"Fat Burn",sets:["Sprint up stairs","Walk down x10 rounds"]},
-      {name:"Battle Ropes",duration:15,burn:240,tag:"Fat Burn",sets:["30s max effort","30s rest x10 rounds"]},
-      {name:"Double Under Jump Rope",duration:18,burn:270,tag:"Fat Burn",sets:["45s jump rope","15s rest x10 rounds"]},
-      {name:"Sled Push Sprints",duration:16,burn:290,tag:"Fat Burn",sets:["30s heavy sled push","30s rest x8 rounds"]},
+      {name:"HIIT Circuit",duration:25,burn:320,tag:"Fat Burn",eq:["none"],av:["jumping"],sets:["Jump squats x20","Burpees x15","Mountain climbers x30","Rest 30s"]},
+      {name:"Tabata Pyramid",duration:20,burn:260,tag:"Fat Burn",eq:["none"],av:["jumping"],sets:["20s all-out / 10s rest x8 rounds","Rotate: push-ups, jump squats, burpees, mountain climbers"]},
+      {name:"20-Min Kettlebell Burn",duration:20,burn:280,tag:"Fat Burn",eq:["kettlebell"],av:[],sets:["Kettlebell swings 45s","Rest 15s x12 rounds"]},
+      {name:"Stair Sprints",duration:20,burn:300,tag:"Fat Burn",eq:["none"],av:["running"],sets:["Sprint up stairs","Walk down x10 rounds"]},
+      {name:"Battle Ropes",duration:15,burn:240,tag:"Fat Burn",eq:["specialty"],av:[],sets:["30s max effort","30s rest x10 rounds"]},
+      {name:"Double Under Jump Rope",duration:18,burn:270,tag:"Fat Burn",eq:["specialty"],av:["jumping"],sets:["45s jump rope","15s rest x10 rounds"]},
+      {name:"Sled Push Sprints",duration:16,burn:290,tag:"Fat Burn",eq:["specialty"],av:["running"],sets:["30s heavy sled push","30s rest x8 rounds"]},
     ],
     cardio:[
-      {name:"Treadmill Intervals",duration:30,burn:280,tag:"Cardio",sets:["3min jog warmup","1min sprint / 1min jog x6 rounds","5min cooldown"]},
-      {name:"Running Tempo",duration:35,burn:310,tag:"Cardio",sets:["5min jog warmup","20min steady run","5min cooldown"]},
-      {name:"Rowing Machine Blitz",duration:25,burn:290,tag:"Cardio",sets:["2min row","1min rest x8 rounds","2min easy cooldown"]},
-      {name:"Elliptical Steady State",duration:35,burn:280,tag:"Cardio",sets:["35min zone 2 (conversational pace)"]},
-      {name:"Bike Sprints",duration:20,burn:270,tag:"Cardio",sets:["Spin bike 30s sprint","30s recovery x10 rounds"]},
-      {name:"Jump Rope Blast",duration:15,burn:210,tag:"Cardio",sets:["2min jump rope","1min rest x5 rounds","Cool down"]},
-      {name:"Stair Climber Steady",duration:30,burn:250,tag:"Cardio",sets:["30min moderate pace stair climber"]},
-      {name:"Swimming Cardio",duration:40,burn:320,tag:"Cardio",sets:["10min easy swim","20min steady pace","10min cooldown"]},
+      {name:"Treadmill Intervals",duration:30,burn:280,tag:"Cardio",eq:["cardio-machine"],av:["running"],sets:["3min jog warmup","1min sprint / 1min jog x6 rounds","5min cooldown"]},
+      {name:"Running Tempo",duration:35,burn:310,tag:"Cardio",eq:["none"],av:["running"],sets:["5min jog warmup","20min steady run","5min cooldown"]},
+      {name:"Rowing Machine Blitz",duration:25,burn:290,tag:"Cardio",eq:["cardio-machine"],av:[],sets:["2min row","1min rest x8 rounds","2min easy cooldown"]},
+      {name:"Elliptical Steady State",duration:35,burn:280,tag:"Cardio",eq:["cardio-machine"],av:[],sets:["35min zone 2 (conversational pace)"]},
+      {name:"Bike Sprints",duration:20,burn:270,tag:"Cardio",eq:["bike"],av:[],sets:["Spin bike 30s sprint","30s recovery x10 rounds"]},
+      {name:"Jump Rope Blast",duration:15,burn:210,tag:"Cardio",eq:["specialty"],av:["jumping"],sets:["2min jump rope","1min rest x5 rounds","Cool down"]},
+      {name:"Stair Climber Steady",duration:30,burn:250,tag:"Cardio",eq:["cardio-machine"],av:[],sets:["30min moderate pace stair climber"]},
+      {name:"Swimming Cardio",duration:40,burn:320,tag:"Cardio",eq:["pool"],av:["swimming"],sets:["10min easy swim","20min steady pace","10min cooldown"]},
     ],
   },
   gain:{
     upperbody:[
-      {name:"Upper Body Power",duration:50,burn:280,tag:"Strength",sets:["Bench Press 4x8","Barbell Row 4x8","Overhead Press 3x10","Pull-ups 3x Failure"]},
-      {name:"Chest Specialist",duration:48,burn:260,tag:"Hypertrophy",sets:["Barbell Bench 4x6","Incline Dumbbell Press 3x8","Cable Flyes 3x12","Machine Press 3x15"]},
-      {name:"Back & Biceps",duration:50,burn:245,tag:"Hypertrophy",sets:["Pendlay Row 4x6","Wide Lat Pulldown 3x8","Underhand Rows 3x10","Barbell Curls 3x8","Preacher Curls 3x12"]},
-      {name:"Shoulders & Traps",duration:42,burn:220,tag:"Hypertrophy",sets:["Overhead Press 4x6","Lateral Raises 3x12","Reverse Flyes 3x12","Shrugs 3x15","Machine Shoulder Press 3x10"]},
-      {name:"Push Day",duration:45,burn:240,tag:"Hypertrophy",sets:["Incline Bench 4x8","Dips 3x12","Lateral Raises 3x15","Tricep Pushdown 3x12"]},
-      {name:"Pull Day",duration:45,burn:230,tag:"Hypertrophy",sets:["Deadlift 4x5","Lat Pulldown 4x10","Face Pulls 3x15","Hammer Curls 3x12"]},
-      {name:"Arm Specialization",duration:35,burn:180,tag:"Hypertrophy",sets:["Barbell Curls 4x6","Tricep Dips 4x8","Machine Curls 3x12","Rope Pushdown 3x12","Concentration Curls 3x12"]},
-      {name:"Chest & Triceps",duration:50,burn:260,tag:"Hypertrophy",sets:["Bench Press 4x6","Incline Bench 3x8","Cable Flyes 3x10","Tricep Dips 3x10","Overhead Extension 3x12"]},
-      {name:"Back Bulk",duration:55,burn:270,tag:"Hypertrophy",sets:["Deadlift 5x5","Barbell Row 4x6","Lat Pulldown 3x8","Machine Row 3x10","Face Pulls 3x15"]},
-      {name:"Shoulder Pump",duration:40,burn:210,tag:"Hypertrophy",sets:["Overhead Press 4x6","Incline Bench 3x8","Lateral Raises 4x12","Reverse Flyes 3x12","Shrugs 3x20"]},
+      {name:"Upper Body Power",duration:50,burn:280,tag:"Strength",eq:["barbell"],av:["overhead"],sets:["Bench Press 4x8","Barbell Row 4x8","Overhead Press 3x10","Pull-ups 3x Failure"]},
+      {name:"Chest Specialist",duration:48,burn:260,tag:"Hypertrophy",eq:["barbell","dumbbell","machine"],av:[],sets:["Barbell Bench 4x6","Incline Dumbbell Press 3x8","Cable Flyes 3x12","Machine Press 3x15"]},
+      {name:"Back & Biceps",duration:50,burn:245,tag:"Hypertrophy",eq:["barbell","machine"],av:[],sets:["Pendlay Row 4x6","Wide Lat Pulldown 3x8","Underhand Rows 3x10","Barbell Curls 3x8","Preacher Curls 3x12"]},
+      {name:"Shoulders & Traps",duration:42,burn:220,tag:"Hypertrophy",eq:["barbell","dumbbell","machine"],av:["overhead"],sets:["Overhead Press 4x6","Lateral Raises 3x12","Reverse Flyes 3x12","Shrugs 3x15","Machine Shoulder Press 3x10"]},
+      {name:"Push Day",duration:45,burn:240,tag:"Hypertrophy",eq:["barbell","dumbbell","machine"],av:[],sets:["Incline Bench 4x8","Dips 3x12","Lateral Raises 3x15","Tricep Pushdown 3x12"]},
+      {name:"Pull Day",duration:45,burn:230,tag:"Hypertrophy",eq:["barbell","dumbbell","machine"],av:["heavy-spinal"],sets:["Deadlift 4x5","Lat Pulldown 4x10","Face Pulls 3x15","Hammer Curls 3x12"]},
+      {name:"Arm Specialization",duration:35,burn:180,tag:"Hypertrophy",eq:["barbell","dumbbell","machine"],av:[],sets:["Barbell Curls 4x6","Tricep Dips 4x8","Machine Curls 3x12","Rope Pushdown 3x12","Concentration Curls 3x12"]},
+      {name:"Chest & Triceps",duration:50,burn:260,tag:"Hypertrophy",eq:["barbell","dumbbell","machine"],av:[],sets:["Bench Press 4x6","Incline Bench 3x8","Cable Flyes 3x10","Tricep Dips 3x10","Overhead Extension 3x12"]},
+      {name:"Back Bulk",duration:55,burn:270,tag:"Hypertrophy",eq:["barbell","machine"],av:["heavy-spinal"],sets:["Deadlift 5x5","Barbell Row 4x6","Lat Pulldown 3x8","Machine Row 3x10","Face Pulls 3x15"]},
+      {name:"Shoulder Pump",duration:40,burn:210,tag:"Hypertrophy",eq:["barbell","dumbbell"],av:["overhead"],sets:["Overhead Press 4x6","Incline Bench 3x8","Lateral Raises 4x12","Reverse Flyes 3x12","Shrugs 3x20"]},
     ],
     lowerbody:[
-      {name:"Leg Day",duration:55,burn:350,tag:"Strength",sets:["Back Squat 4x6","Romanian Deadlift 4x8","Leg Press 3x12","Calf Raises 4x15"]},
-      {name:"Quad Focus",duration:50,burn:320,tag:"Strength",sets:["Front Squat 4x6","Leg Press 4x8","Walking Lunges 3x12 each","Leg Extensions 3x15"]},
-      {name:"Hamstring & Glute",duration:48,burn:310,tag:"Strength",sets:["Deadlift 4x5","Leg Curl 4x8","Hip Thrusts 3x10","GHD Sit-ups 3x12"]},
-      {name:"Squat Day",duration:52,burn:340,tag:"Strength",sets:["Back Squat 4x5","Front Squat 3x6","Bulgarian Split Squat 3x8 each","Leg Extensions 3x12"]},
-      {name:"Deadlift Day",duration:50,burn:330,tag:"Strength",sets:["Deadlift 4x5","Sumo Deadlift 3x6","Trap Bar Deadlift 3x6","Leg Curls 3x12"]},
-      {name:"Glute Emphasis",duration:48,burn:300,tag:"Strength",sets:["Barbell Hip Thrust 4x6","Back Squat 3x8","Leg Press 3x10","Walking Lunges 3x12 each"]},
-      {name:"Leg Pump",duration:45,burn:280,tag:"Hypertrophy",sets:["Leg Press 4x10","Leg Extensions 4x12","Leg Curls 4x12","Calf Raises 4x15"]},
-      {name:"Lower Body Supersets",duration:50,burn:320,tag:"Hypertrophy",sets:["Squat + Leg Press 3x8","RDL + Leg Curl 3x10","Lunge + Leg Extension 3x12"]},
+      {name:"Leg Day",duration:55,burn:350,tag:"Strength",eq:["barbell","machine"],av:["heavy-spinal"],sets:["Back Squat 4x6","Romanian Deadlift 4x8","Leg Press 3x12","Calf Raises 4x15"]},
+      {name:"Quad Focus",duration:50,burn:320,tag:"Strength",eq:["barbell","machine"],av:["heavy-spinal"],sets:["Front Squat 4x6","Leg Press 4x8","Walking Lunges 3x12 each","Leg Extensions 3x15"]},
+      {name:"Hamstring & Glute",duration:48,burn:310,tag:"Strength",eq:["barbell","machine"],av:["heavy-spinal"],sets:["Deadlift 4x5","Leg Curl 4x8","Hip Thrusts 3x10","GHD Sit-ups 3x12"]},
+      {name:"Squat Day",duration:52,burn:340,tag:"Strength",eq:["barbell","machine"],av:["heavy-spinal"],sets:["Back Squat 4x5","Front Squat 3x6","Bulgarian Split Squat 3x8 each","Leg Extensions 3x12"]},
+      {name:"Deadlift Day",duration:50,burn:330,tag:"Strength",eq:["barbell","machine"],av:["heavy-spinal"],sets:["Deadlift 4x5","Sumo Deadlift 3x6","Trap Bar Deadlift 3x6","Leg Curls 3x12"]},
+      {name:"Glute Emphasis",duration:48,burn:300,tag:"Strength",eq:["barbell","machine"],av:["heavy-spinal"],sets:["Barbell Hip Thrust 4x6","Back Squat 3x8","Leg Press 3x10","Walking Lunges 3x12 each"]},
+      {name:"Leg Pump",duration:45,burn:280,tag:"Hypertrophy",eq:["machine"],av:[],sets:["Leg Press 4x10","Leg Extensions 4x12","Leg Curls 4x12","Calf Raises 4x15"]},
+      {name:"Lower Body Supersets",duration:50,burn:320,tag:"Hypertrophy",eq:["barbell","machine"],av:["heavy-spinal"],sets:["Squat + Leg Press 3x8","RDL + Leg Curl 3x10","Lunge + Leg Extension 3x12"]},
     ],
     compound:[
-      {name:"Full Body Compound",duration:60,burn:340,tag:"Strength",sets:["Barbell Squat 4x5","Barbell Bench 4x5","Barbell Row 4x5","Rest 3min between sets"]},
-      {name:"Power Clean Cycle",duration:45,burn:300,tag:"Strength",sets:["Power Clean 5x3","Front Squat 3x5","Bench Press 3x5","Barbell Row 3x5"]},
-      {name:"Olympic Lifting Complex",duration:50,burn:310,tag:"Strength",sets:["Snatch 5x3","Clean & Jerk 5x3","Front Squat 3x5"]},
-      {name:"3-Day Split",duration:55,burn:300,tag:"Strength",sets:["Day 1: Bench 4x5, Row 4x5, OHP 3x8","Day 2: Squat 4x5, DL 3x5, Leg Press 3x8","Day 3: Incline 3x8, Lat Pull 3x8, Dips 3x10"]},
+      {name:"Full Body Compound",duration:60,burn:340,tag:"Strength",eq:["barbell"],av:["heavy-spinal"],sets:["Barbell Squat 4x5","Barbell Bench 4x5","Barbell Row 4x5","Rest 3min between sets"]},
+      {name:"Power Clean Cycle",duration:45,burn:300,tag:"Strength",eq:["barbell"],av:["heavy-spinal","overhead"],sets:["Power Clean 5x3","Front Squat 3x5","Bench Press 3x5","Barbell Row 3x5"]},
+      {name:"Olympic Lifting Complex",duration:50,burn:310,tag:"Strength",eq:["barbell"],av:["heavy-spinal","overhead"],sets:["Snatch 5x3","Clean & Jerk 5x3","Front Squat 3x5"]},
+      {name:"3-Day Split",duration:55,burn:300,tag:"Strength",eq:["barbell","machine"],av:["heavy-spinal","overhead"],sets:["Day 1: Bench 4x5, Row 4x5, OHP 3x8","Day 2: Squat 4x5, DL 3x5, Leg Press 3x8","Day 3: Incline 3x8, Lat Pull 3x8, Dips 3x10"]},
     ],
   },
   endure:{
     running:[
-      {name:"Long Run",duration:45,burn:420,tag:"Aerobic",sets:["5min warmup walk","35min easy run (zone 2)","5min cooldown"]},
-      {name:"Running Tempo",duration:40,burn:380,tag:"Speed",sets:["10min easy run","20min at threshold pace","10min easy run"]},
-      {name:"Fartlek Run",duration:35,burn:350,tag:"Speed",sets:["10min warmup","8x(3min hard / 3min easy)","5min cooldown"]},
-      {name:"Ladder Run",duration:30,burn:320,tag:"Speed",sets:["5min warmup","1-2-3-4-3-2-1 min intervals at race pace","Recovery jogs between"]},
-      {name:"Easy Recovery Run",duration:30,burn:240,tag:"Aerobic",sets:["30min zone 2 (conversational)"]},
-      {name:"Hill Repeats Running",duration:35,burn:360,tag:"Speed",sets:["10min warmup","6x(2min hill sprint / 2min recovery)","5min cooldown"]},
-      {name:"Track Intervals",duration:40,burn:380,tag:"Speed",sets:["10min warmup","10x(400m fast / 400m easy)","5min cooldown"]},
+      {name:"Long Run",duration:45,burn:420,tag:"Aerobic",eq:["none"],av:["running"],sets:["5min warmup walk","35min easy run (zone 2)","5min cooldown"]},
+      {name:"Running Tempo",duration:40,burn:380,tag:"Speed",eq:["none"],av:["running"],sets:["10min easy run","20min at threshold pace","10min easy run"]},
+      {name:"Fartlek Run",duration:35,burn:350,tag:"Speed",eq:["none"],av:["running"],sets:["10min warmup","8x(3min hard / 3min easy)","5min cooldown"]},
+      {name:"Ladder Run",duration:30,burn:320,tag:"Speed",eq:["none"],av:["running"],sets:["5min warmup","1-2-3-4-3-2-1 min intervals at race pace","Recovery jogs between"]},
+      {name:"Easy Recovery Run",duration:30,burn:240,tag:"Aerobic",eq:["none"],av:["running"],sets:["30min zone 2 (conversational)"]},
+      {name:"Hill Repeats Running",duration:35,burn:360,tag:"Speed",eq:["none"],av:["running"],sets:["10min warmup","6x(2min hill sprint / 2min recovery)","5min cooldown"]},
+      {name:"Track Intervals",duration:40,burn:380,tag:"Speed",eq:["none"],av:["running"],sets:["10min warmup","10x(400m fast / 400m easy)","5min cooldown"]},
     ],
     cycling:[
-      {name:"Cycling Session",duration:60,burn:480,tag:"Aerobic",sets:["10min warmup","40min steady pace","10min cooldown"]},
-      {name:"Hill Repeats Bike",duration:45,burn:420,tag:"Speed",sets:["10min warmup","6x(3min hill sprint / 3min recovery)","10min cooldown"]},
-      {name:"Spin Class Endurance",duration:50,burn:400,tag:"Aerobic",sets:["50min mixed cadence climbing & sprints"]},
-      {name:"Long Distance Ride",duration:90,burn:720,tag:"Aerobic",sets:["90min easy to moderate pace outdoor ride"]},
-      {name:"Tempo Bike Ride",duration:50,burn:440,tag:"Speed",sets:["15min warmup","30min threshold pace","5min cooldown"]},
+      {name:"Cycling Session",duration:60,burn:480,tag:"Aerobic",eq:["bike"],av:[],sets:["10min warmup","40min steady pace","10min cooldown"]},
+      {name:"Hill Repeats Bike",duration:45,burn:420,tag:"Speed",eq:["bike"],av:[],sets:["10min warmup","6x(3min hill sprint / 3min recovery)","10min cooldown"]},
+      {name:"Spin Class Endurance",duration:50,burn:400,tag:"Aerobic",eq:["bike"],av:[],sets:["50min mixed cadence climbing & sprints"]},
+      {name:"Long Distance Ride",duration:90,burn:720,tag:"Aerobic",eq:["bike"],av:[],sets:["90min easy to moderate pace outdoor ride"]},
+      {name:"Tempo Bike Ride",duration:50,burn:440,tag:"Speed",eq:["bike"],av:[],sets:["15min warmup","30min threshold pace","5min cooldown"]},
     ],
     swimming:[
-      {name:"Swim Intervals",duration:40,burn:360,tag:"Cross-Train",sets:["4x 100m freestyle","2x 50m backstroke","Rest 30s between laps"]},
-      {name:"Long Distance Swim",duration:50,burn:380,tag:"Aerobic",sets:["Continuous 50min swim, mixed strokes"]},
-      {name:"Swim Pyramid",duration:45,burn:350,tag:"Speed",sets:["100m warmup","100-200-300-200-100m","Easy 100m cooldown"]},
-      {name:"Kickboard Drills",duration:35,burn:280,tag:"Aerobic",sets:["10x 50m kicks","Rest 30s between","Cool down with easy swim"]},
-      {name:"Pull Buoy Set",duration:40,burn:320,tag:"Aerobic",sets:["10x 100m with pull buoy","Rest 30s between","Cool down"]},
+      {name:"Swim Intervals",duration:40,burn:360,tag:"Cross-Train",eq:["pool"],av:["swimming"],sets:["4x 100m freestyle","2x 50m backstroke","Rest 30s between laps"]},
+      {name:"Long Distance Swim",duration:50,burn:380,tag:"Aerobic",eq:["pool"],av:["swimming"],sets:["Continuous 50min swim, mixed strokes"]},
+      {name:"Swim Pyramid",duration:45,burn:350,tag:"Speed",eq:["pool"],av:["swimming"],sets:["100m warmup","100-200-300-200-100m","Easy 100m cooldown"]},
+      {name:"Kickboard Drills",duration:35,burn:280,tag:"Aerobic",eq:["pool"],av:["swimming"],sets:["10x 50m kicks","Rest 30s between","Cool down with easy swim"]},
+      {name:"Pull Buoy Set",duration:40,burn:320,tag:"Aerobic",eq:["pool"],av:["swimming"],sets:["10x 100m with pull buoy","Rest 30s between","Cool down"]},
     ],
     other:[
-      {name:"Rowing Endurance",duration:45,burn:390,tag:"Aerobic",sets:["45min steady state, 2:00–2:15 split"]},
-      {name:"Jump Rope Steady",duration:30,burn:280,tag:"Aerobic",sets:["30min continuous jump rope, steady rhythm"]},
-      {name:"Stair Climbing",duration:35,burn:320,tag:"Aerobic",sets:["35min steady stair climb, conversational pace"]},
-      {name:"Elliptical Endurance",duration:50,burn:380,tag:"Aerobic",sets:["50min zone 2 elliptical"]},
+      {name:"Rowing Endurance",duration:45,burn:390,tag:"Aerobic",eq:["cardio-machine"],av:[],sets:["45min steady state, 2:00–2:15 split"]},
+      {name:"Jump Rope Steady",duration:30,burn:280,tag:"Aerobic",eq:["specialty"],av:["jumping"],sets:["30min continuous jump rope, steady rhythm"]},
+      {name:"Stair Climbing",duration:35,burn:320,tag:"Aerobic",eq:["none"],av:[],sets:["35min steady stair climb, conversational pace"]},
+      {name:"Elliptical Endurance",duration:50,burn:380,tag:"Aerobic",eq:["cardio-machine"],av:[],sets:["50min zone 2 elliptical"]},
     ],
   },
   maintain:{
     balanced:[
-      {name:"Full Body Strength",duration:40,burn:260,tag:"Balanced",sets:["Squats 3x10","Push-ups 3x15","Dumbbell rows 3x12","Plank 3x45s"]},
-      {name:"3-Exercise Total Body",duration:35,burn:240,tag:"Balanced",sets:["Deadlifts 3x8","Bench Press 3x8","Rows 3x8"]},
-      {name:"Push Pull Legs Mini",duration:50,burn:280,tag:"Balanced",sets:["Bench 3x8","Rows 3x8","Squats 3x8","Curls 2x10","Triceps 2x10"]},
-      {name:"Dumbbell Full Body",duration:45,burn:260,tag:"Balanced",sets:["Dumbbell Squat 3x10","Dumbbell Bench 3x10","Dumbbell Row 3x10","Farmer Carry 3x40m"]},
-      {name:"Bodyweight Full Body",duration:40,burn:220,tag:"Balanced",sets:["Push-ups 3x15","Squats 3x20","Pull-ups 3x8","Planks 3x60s"]},
+      {name:"Full Body Strength",duration:40,burn:260,tag:"Balanced",eq:["dumbbell"],av:[],sets:["Squats 3x10","Push-ups 3x15","Dumbbell rows 3x12","Plank 3x45s"]},
+      {name:"3-Exercise Total Body",duration:35,burn:240,tag:"Balanced",eq:["barbell"],av:["heavy-spinal"],sets:["Deadlifts 3x8","Bench Press 3x8","Rows 3x8"]},
+      {name:"Push Pull Legs Mini",duration:50,burn:280,tag:"Balanced",eq:["barbell","dumbbell"],av:[],sets:["Bench 3x8","Rows 3x8","Squats 3x8","Curls 2x10","Triceps 2x10"]},
+      {name:"Dumbbell Full Body",duration:45,burn:260,tag:"Balanced",eq:["dumbbell"],av:[],sets:["Dumbbell Squat 3x10","Dumbbell Bench 3x10","Dumbbell Row 3x10","Farmer Carry 3x40m"]},
+      {name:"Bodyweight Full Body",duration:40,burn:220,tag:"Balanced",eq:["none"],av:[],sets:["Push-ups 3x15","Squats 3x20","Pull-ups 3x8","Planks 3x60s"]},
     ],
     recovery:[
-      {name:"Yoga Flow",duration:35,burn:120,tag:"Recovery",sets:["Sun salutations x5","Warrior sequence","Hip openers","Savasana"]},
-      {name:"Yin Yoga",duration:40,burn:100,tag:"Recovery",sets:["8 poses x5min each","Deep stretches, hold & breathe"]},
-      {name:"Pilates Mat",duration:30,burn:140,tag:"Recovery",sets:["100s","Roll ups","Single leg circles x10 each","Spine stretch"]},
-      {name:"Tai Chi",duration:35,burn:110,tag:"Recovery",sets:["Slow flowing movements","Focus on breathing","Balance & coordination"]},
-      {name:"Stretching Routine",duration:25,burn:80,tag:"Recovery",sets:["10min full body dynamic stretch","10min static hold stretches","5min breathing cooldown"]},
+      {name:"Yoga Flow",duration:35,burn:120,tag:"Recovery",eq:["none"],av:[],sets:["Sun salutations x5","Warrior sequence","Hip openers","Savasana"]},
+      {name:"Yin Yoga",duration:40,burn:100,tag:"Recovery",eq:["none"],av:[],sets:["8 poses x5min each","Deep stretches, hold & breathe"]},
+      {name:"Pilates Mat",duration:30,burn:140,tag:"Recovery",eq:["none"],av:[],sets:["100s","Roll ups","Single leg circles x10 each","Spine stretch"]},
+      {name:"Tai Chi",duration:35,burn:110,tag:"Recovery",eq:["none"],av:[],sets:["Slow flowing movements","Focus on breathing","Balance & coordination"]},
+      {name:"Stretching Routine",duration:25,burn:80,tag:"Recovery",eq:["none"],av:[],sets:["10min full body dynamic stretch","10min static hold stretches","5min breathing cooldown"]},
     ],
     cardio:[
-      {name:"Moderate Cardio",duration:30,burn:240,tag:"Cardio",sets:["5min warmup","20min steady pace","5min cooldown"]},
-      {name:"Walking Incline",duration:40,burn:180,tag:"Cardio",sets:["40min treadmill walk, 5% incline, zone 2"]},
-      {name:"Elliptical Steady",duration:35,burn:220,tag:"Cardio",sets:["35min zone 2 elliptical"]},
-      {name:"Casual Bike Ride",duration:45,burn:280,tag:"Cardio",sets:["45min easy outdoor bike ride"]},
-      {name:"Light Swimming",duration:30,burn:200,tag:"Cardio",sets:["30min easy mixed stroke swimming"]},
+      {name:"Moderate Cardio",duration:30,burn:240,tag:"Cardio",eq:["none"],av:[],sets:["5min warmup","20min steady pace","5min cooldown"]},
+      {name:"Walking Incline",duration:40,burn:180,tag:"Cardio",eq:["cardio-machine"],av:[],sets:["40min treadmill walk, 5% incline, zone 2"]},
+      {name:"Elliptical Steady",duration:35,burn:220,tag:"Cardio",eq:["cardio-machine"],av:[],sets:["35min zone 2 elliptical"]},
+      {name:"Casual Bike Ride",duration:45,burn:280,tag:"Cardio",eq:["bike"],av:[],sets:["45min easy outdoor bike ride"]},
+      {name:"Light Swimming",duration:30,burn:200,tag:"Cardio",eq:["pool"],av:["swimming"],sets:["30min easy mixed stroke swimming"]},
     ],
     mobility:[
-      {name:"Core & Mobility",duration:25,burn:140,tag:"Mobility",sets:["Dead bugs 3x12","Bird dogs 3x10","Glute bridges 3x15","Hip mobility flow"]},
-      {name:"Foam Roll & Stretch",duration:20,burn:60,tag:"Mobility",sets:["Quads, hamstrings, back, shoulders 5min each"]},
-      {name:"Yoga Mobility",duration:30,burn:110,tag:"Mobility",sets:["Cat-cow flow","Pigeon pose 3min each","Thread the needle","Downward dog holds"]},
-      {name:"Lacrosse Ball Release",duration:20,burn:70,tag:"Mobility",sets:["Chest, lats, glutes, feet 5min each","Trigger point release"]},
-      {name:"Dynamic Warm-up",duration:15,burn:60,tag:"Mobility",sets:["Leg swings, arm circles, lunges, rotations","Prepare body for training"]},
+      {name:"Core & Mobility",duration:25,burn:140,tag:"Mobility",eq:["none"],av:[],sets:["Dead bugs 3x12","Bird dogs 3x10","Glute bridges 3x15","Hip mobility flow"]},
+      {name:"Foam Roll & Stretch",duration:20,burn:60,tag:"Mobility",eq:["specialty"],av:[],sets:["Quads, hamstrings, back, shoulders 5min each"]},
+      {name:"Yoga Mobility",duration:30,burn:110,tag:"Mobility",eq:["none"],av:[],sets:["Cat-cow flow","Pigeon pose 3min each","Thread the needle","Downward dog holds"]},
+      {name:"Lacrosse Ball Release",duration:20,burn:70,tag:"Mobility",eq:["specialty"],av:[],sets:["Chest, lats, glutes, feet 5min each","Trigger point release"]},
+      {name:"Dynamic Warm-up",duration:15,burn:60,tag:"Mobility",eq:["none"],av:[],sets:["Leg swings, arm circles, lunges, rotations","Prepare body for training"]},
     ],
   },
 };
@@ -2411,10 +2411,13 @@ const EXP_NOTE = {
   intermediate: 'Intermediate protocol: run sessions as written. When every set feels easier than 8/10 effort, add 2.5–5% load or one rep.',
   advanced:     'Advanced protocol: sessions are your floor, not your ceiling — add a top set or a finisher, and track weekly volume.',
 };
+/* These describe what the scheduler now actually does. They used to tell the
+   user to substitute movements themselves, which stopped being true the
+   moment pickFrom started filtering. */
 const EQUIP_NOTE = {
-  none:  'No equipment: swap barbell and machine moves for their bodyweight versions (push-up families, split squats, inverted rows).',
-  basic: 'Dumbbells only: every barbell lift here has a dumbbell equivalent — same sets, same effort scale.',
-  gym:   'Full gym access: run every session exactly as written.',
+  none:  'Bodyweight only: your week is built from sessions that need no equipment at all. Everything else stays in the Library to browse — it just will not be scheduled.',
+  basic: 'Dumbbells and small kit: your week is built from sessions you can run with dumbbells, bands or a kettlebell. Barbell, machine and pool work stays out of the schedule.',
+  gym:   'Full gym access: nothing is filtered out — every session in the library is fair game.',
 };
 const REST_LABEL = {
   lose:'Rest · hit 10k steps', gain:'Rest · protein focus day',
@@ -2452,19 +2455,99 @@ const SPLIT_TEMPLATES = {
   },
 };
 
-/* Muscle-building has no cardio block of its own, so borrow conditioning sessions
-   from the fat-loss library to keep the heart trained on a "gain" plan. */
-const CONDITIONING_FALLBACK = { goal:'lose', cat:'cardio' };
+/* ---- what a session needs, and what the user can actually do ----
+   Every library entry carries eq: (equipment required — the user needs ALL of
+   it) and av: (movement traits someone may have to work around). Before this
+   existed, `equip` only printed a paragraph of advice, so a bodyweight-only
+   user could be scheduled Sled Push Sprints. */
+const EQUIP_VOCAB = ['none','dumbbell','barbell','machine','cardio-machine',
+                     'kettlebell','bands','pool','bike','specialty'];
+const EQUIP_LEVELS = {
+  none:  ['none'],
+  basic: ['none','dumbbell','bands','kettlebell'],
+  gym:   EQUIP_VOCAB,
+};
+const AVOID_VOCAB = ['running','jumping','overhead','heavy-spinal','swimming'];
 
-/* pick the Nth distinct workout from a subcategory, cycling if needed.
-   'conditioning' is a virtual category that pulls from the cardio library. */
-function pickFrom(goal, cat, n){
-  if (cat === 'conditioning'){
-    const arr = WORKOUTS_SPECIALIZED[CONDITIONING_FALLBACK.goal][CONDITIONING_FALLBACK.cat];
-    return { w: arr[n % arr.length], realGoal: CONDITIONING_FALLBACK.goal };
+/* Profiles saved before equipment meant anything carry no usable level, and
+   must keep producing the plan they already have — so an unrecognised level
+   opens everything rather than narrowing to bodyweight. equipDetail names kit
+   precisely when something upstream knew it exactly; the wizard only ever
+   knows the three levels. */
+function availableEquip(pf){
+  const detail = pf && Array.isArray(pf.equipDetail) ? pf.equipDetail : null;
+  if (detail && detail.length)
+    return [...new Set(['none', ...detail.filter(e => EQUIP_VOCAB.includes(e))])];
+  return EQUIP_LEVELS[pf && pf.equip] || EQUIP_LEVELS.gym;
+}
+/* Unknown trait names are dropped rather than trusted — an avoid list that
+   arrived from outside this file must not be able to empty the library. */
+function avoidTraits(pf){
+  const a = pf && Array.isArray(pf.avoid) ? pf.avoid : [];
+  return a.filter(t => AVOID_VOCAB.includes(t));
+}
+const workoutOK = (w, avail, avoid) =>
+  (w.eq || ['none']).every(e => avail.includes(e)) &&
+  !(w.av || []).some(t => avoid.includes(t));
+
+/* Muscle-building has no cardio block of its own, so 'conditioning' is a
+   virtual category sourced from the fat-loss cardio library. */
+const CAT_SOURCE = { conditioning: ['lose','cardio'] };
+
+/* When equipment or an avoid list empties a category, drop to the nearest
+   category that trains something comparable rather than scheduling a session
+   the user cannot do, or leaving the day blank. Every mobility and recovery
+   entry is bodyweight with no traits, so the last two rungs can never
+   themselves come back empty. */
+const CAT_FALLBACK = {
+  'gain/upperbody':    [['maintain','balanced'], ['lose','fatburn']],
+  'gain/lowerbody':    [['maintain','balanced'], ['lose','fatburn']],
+  'gain/compound':     [['maintain','balanced'], ['lose','fatburn']],
+  'gain/conditioning': [['lose','fatburn'],      ['maintain','cardio']],
+  'lose/fatburn':      [['lose','cardio'],       ['maintain','balanced']],
+  'lose/cardio':       [['lose','fatburn'],      ['endure','running'], ['maintain','cardio']],
+  'endure/running':    [['endure','other'],      ['lose','cardio'],    ['maintain','cardio']],
+  'endure/cycling':    [['endure','other'],      ['endure','running'], ['lose','cardio']],
+  'endure/swimming':   [['endure','other'],      ['endure','running'], ['lose','cardio']],
+  'endure/other':      [['endure','running'],    ['lose','cardio'],    ['maintain','cardio']],
+  'maintain/balanced': [['lose','fatburn'],      ['maintain','mobility']],
+  'maintain/cardio':   [['lose','cardio'],       ['endure','running'], ['lose','fatburn']],
+  'maintain/mobility': [['maintain','recovery']],
+  'maintain/recovery': [['maintain','mobility']],
+};
+const LAST_RESORT = [['maintain','mobility'], ['maintain','recovery']];
+
+const libraryFor = (goal, cat) => {
+  const [g, c] = CAT_SOURCE[cat] || [goal, cat];
+  const arr = (WORKOUTS_SPECIALIZED[g] || {})[c];
+  return arr ? { g, c, arr } : null;
+};
+
+/* pick the next workout the user can actually perform from a subcategory,
+   cycling if needed, walking the fallback chain when the category is empty
+   for them.
+
+   `seen` is the caller's shared tally and IS MUTATED here, keyed by the shelf
+   finally used rather than by the category asked for. That distinction is the
+   whole point: on a dumbbells-only "build muscle" plan both upperbody and
+   lowerbody fall to maintain/balanced, and a per-category counter left each of
+   them at 0 — so Monday and Tuesday came back as the same session. */
+function pickFrom(goal, cat, seen, avail, avoid){
+  const chain = [[goal, cat], ...(CAT_FALLBACK[goal + '/' + cat] || []), ...LAST_RESORT];
+  for (let i = 0; i < chain.length; i++){
+    const lib = libraryFor(chain[i][0], chain[i][1]);
+    if (!lib) continue;
+    const ok = lib.arr.filter(w => workoutOK(w, avail, avoid));
+    if (!ok.length) continue;
+    const key = lib.g + '/' + lib.c;
+    const n = seen[key] = (seen[key] || 0);
+    seen[key]++;
+    return {
+      w: ok[n % ok.length], realGoal: lib.g, realCat: lib.c,
+      substituted: i === 0 ? null : { from: cat, to: lib.c },
+    };
   }
-  const arr = WORKOUTS_SPECIALIZED[goal][cat];
-  return { w: arr[n % arr.length], realGoal: goal };
+  return null;
 }
 
 function computePlan(){
@@ -2493,15 +2576,20 @@ function computePlan(){
   const template = (SPLIT_TEMPLATES[d.goal] || SPLIT_TEMPLATES.maintain)[d.days]
                 || (SPLIT_TEMPLATES[d.goal] || SPLIT_TEMPLATES.maintain)[4];
 
-  /* track how many times we've used each subcategory so repeats are distinct */
-  const seen = {};
-  const trainingDays = pattern.map((dayIdx, slot) => {
+  /* `seen` tallies each shelf as it is used so repeats land on a different
+     session; pickFrom owns the increment because only it knows which shelf a
+     slot finally came from. */
+  const avail = availableEquip(d), avoid = avoidTraits(d);
+  const seen = {}, subs = [], trainingDays = [];
+  pattern.forEach((dayIdx, slot) => {
     const cat = template[slot % template.length];
-    seen[cat] = (seen[cat] || 0);
-    const picked = pickFrom(d.goal, cat, seen[cat]);
-    seen[cat]++;
-    return { dayIdx, g:picked.realGoal, cat, w:picked.w };
+    const picked = pickFrom(d.goal, cat, seen, avail, avoid);
+    if (!picked) return;          /* unreachable — the last rung is bodyweight-only */
+    if (picked.substituted) subs.push(picked.substituted);
+    trainingDays.push({ dayIdx, g:picked.realGoal, cat:picked.realCat, w:picked.w });
   });
+  /* one line per distinct swap, not one per affected day */
+  const substitutions = [...new Map(subs.map(s => [s.from + '>' + s.to, s])).values()];
 
   const schedule = DAYNAMES.map((day, i) => {
     const t = trainingDays.find(x => x.dayIdx === i);
@@ -2564,7 +2652,7 @@ function computePlan(){
     proteinCal: protein*4, carbCal: carbs*4, fatCal: fat*9,
     waterL,
     steps:  d.goal === 'lose' ? '10,000' : '8,000',
-    schedule, coverage,
+    schedule, coverage, substitutions,
     bmi: Math.round(bmi*10)/10, bmiCat,
     weeklyMinutes, weeklyBurn,
     dailyDelta: Math.round(dailyDelta),
@@ -2925,6 +3013,14 @@ function pagePlanFull(){
   const pW = et.protein*4/totCal*100, cW = et.carbs*4/totCal*100, fW = et.fat*9/totCal*100;
   const C_P = '#f06511', C_C = '#ffb060', C_F = '#7a8bd6';
 
+  /* Swaps worth telling the user about. lose/cardio falling back to
+     maintain/cardio is a real substitution in the data, but both ends read
+     "Cardio" on screen — showing it would be noise, not honesty. */
+  const catLabel = c => CAT_LABEL[c] || c;
+  const swaps = [...new Map((p.substitutions || [])
+    .filter(s => catLabel(s.from) !== catLabel(s.to))
+    .map(s => [catLabel(s.from) + '>' + catLabel(s.to), s])).values()];
+
   /* projection wording */
   const projVerb = p.projDir === 'gain' ? 'gain' : p.projDir === 'lose' ? 'shed' : 'hold steady at';
   const projLine = p.projChange < 0.3
@@ -3052,10 +3148,17 @@ function pagePlanFull(){
         <div class="sub">${p.coverage.join(' · ')}</div>
       </div>
     </div>
+    ${swaps.length ? `
+    <div class="card rv" style="border-color:var(--ember-mid);padding:13px 16px;margin-bottom:10px">
+      <div class="fl" style="margin-bottom:5px">Adjusted to what you have</div>
+      <p class="mut" style="font-size:13px;line-height:1.55;margin:0 0 6px">Some of this goal's usual sessions need equipment or movements you told us to leave out, so the nearest workable focus took their place:</p>
+      <p class="mut" style="font-size:13px;line-height:1.55;margin:0">${swaps.map(s =>
+        `${escHtml(catLabel(s.from))} → <b class="em">${escHtml(catLabel(s.to))}</b>`).join(' · ')}</p>
+    </div>` : `
     <div class="card rv" style="border-color:var(--ember-mid);padding:13px 16px;margin-bottom:10px">
       <div class="fl" style="margin-bottom:5px">Balanced for the whole body</div>
       <p class="mut" style="font-size:13px;line-height:1.55;margin:0">Every plan covers full-body movement plus cardio — legs included — so nothing gets neglected.</p>
-    </div>
+    </div>`}
     <div class="card click rv" data-act="editDays" style="padding:13px 16px;margin-bottom:10px">
       <div class="row">
         <div>
