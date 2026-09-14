@@ -23,7 +23,7 @@ const EXPORTS = ['state','sanitizeParsed','draftFromParsed','parseGoalText','int
                  'pageDescribe','pageConfirm','pageSupport','pageGoals','commitProfile',
                  'computePlan','CONFIRM_FIELDS','CONF_MIN','MAX_INTAKE','INTAKE_EXAMPLES',
                  'INTAKE_FALLBACK','PARSE_URL','GOALS','EQUIP_LEVELS','AVOID_VOCAB',
-                 'EQUIP_VOCAB','ROUTES','nav','stack'];
+                 'EQUIP_VOCAB','ROUTES','nav','stack','ratePressure','PACE_LINE'];
 const defs = js.slice(0, js.indexOf('/* boot */'))
             + `\n;Object.assign(globalThis, { ${EXPORTS.join(', ')} });\n`;
 
@@ -421,6 +421,82 @@ const reply = (status, body) => async () => ({
   ok('the threshold is exclusive at 1000', !gate('eating 1000 calories a day'));
   ok('the gate never throws on odd input',
      [ '', '   ', '???', ' ', 'x'.repeat(500) ].every(t => typeof gate(t) === 'boolean'));
+
+  /* ═══ 9 · a stated rate is answered, never obeyed ═══ */
+  console.log('\n── 9 · rate and deadline pressure ──');
+  const PRESSURE = [
+    'lose 30 lb in a month',
+    'I want to drop 20 kg by Christmas',
+    'lose 15 pounds by May please',
+    'need to shed 2 stone in 6 weeks for the wedding',
+    'cut to 1200 calories',
+    'I want to get down to 1400 kcal',
+    'lose weight as fast as possible',
+    'looking for a crash diet',
+  ];
+  const CALM = [
+    ...S.INTAKE_EXAMPLES,
+    'Build muscle, gym access, 5 days, I have lifted for a couple of years',
+    'training for a half marathon in April, 5 days a week',
+    'I train 4 days a week and want to stay fit',
+    'maybe I will add a day later on',
+    'lose 15 lb, dumbbells at home',
+  ];
+  const missedRate = PRESSURE.filter(t => !S.ratePressure(t));
+  ok(`all ${PRESSURE.length} rate/deadline phrasings are recognised`,
+     missedRate.length === 0, missedRate.join(' | '));
+  const falseRate = CALM.filter(t => S.ratePressure(t));
+  ok(`none of ${CALM.length} ordinary descriptions are — including the example chips`,
+     falseRate.length === 0, falseRate.join(' | '));
+  ok('a non-string cannot crash the detector',
+     [null, undefined, 42, {}].every(t => S.ratePressure(t) === false));
+
+  S.state.intake.parsed = S.sanitizeParsed(clone(GOOD));
+  S.state.draft = S.draftFromParsed(S.state.intake.parsed);
+  S.state.intake.text = 'lose 30 lb in a month, 4 days a week, dumbbells';
+  h = S.pageConfirm();
+  ok('the confirm screen names the pace the plan does target', /About the pace/.test(h));
+  ok('…says the calories do not move to hit a date', /do not move to hit a date/.test(h));
+  ok('…and says faster tends not to stick', /faster than that tends not to/.test(h));
+  ok('…quotes the pace for the goal that was parsed',
+     h.includes(S.PACE_LINE.lose), S.PACE_LINE.lose);
+  ok('…and invents no number about this particular user',
+     !/\b(kcal|calories per day|\d{3,4} kcal)\b/i.test(h.slice(h.indexOf('About the pace'), h.indexOf('About the pace') + 700)));
+  bal('confirm (rate pressure)', h);
+
+  S.state.draft.goal = null;
+  ok('with no goal chosen yet the note still appears, without a pace claim',
+     /About the pace/.test(S.pageConfirm())
+     && !S.pageConfirm().includes(S.PACE_LINE.lose));
+  S.state.draft.goal = 'lose';
+
+  S.state.intake.text = 'Lose about 15 lb, 4 days a week, dumbbells at home';
+  ok('an ordinary description gets no pace lecture', !/About the pace/.test(S.pageConfirm()));
+
+  ok('a rate claim changes nothing about the arithmetic',
+     fromText({ ...clone(GOOD), unparsed:['wants to lose 30 lb in a month'] }).kcal
+       === fromText({ ...clone(GOOD), unparsed:[] }).kcal
+     && !/ratePressure|PACE_LINE|unparsed/.test(
+          src.slice(src.indexOf('function computePlan()'), src.indexOf('const COACH'))));
+
+  /* ═══ 10 · the two safety strings the spec freezes ═══ */
+  console.log('\n── 10 · the existing warning and disclaimer are unchanged ──');
+  ok('the >1% bodyweight/week warning is present verbatim',
+     src.includes('faster than the 0.5–1% usually recommended. Eating a little more is reasonable here; the target will not go lower on its own.'));
+  ok('…and still fires only for a fat-loss goal above 1%',
+     /goal === 'lose' && m\.lossPctPerWeek > 1/.test(src));
+  const DISCLAIMERS = [
+    'Estimates for healthy adults, not medical advice — that includes targets measured from your own data',
+    'Targets — including ones measured from your own data — are estimates for healthy adults, not medical advice.',
+    'Patterns, not grades: a day over or under target is information, not a verdict.',
+  ];
+  DISCLAIMERS.forEach((d, i) =>
+    ok(`disclaimer ${i + 1} of ${DISCLAIMERS.length} is present verbatim`, src.includes(d)));
+  ok('the new intake note adds to them rather than replacing one',
+     src.includes('This is exercise selection, not medical advice'));
+  ok('the 1300 kcal floor is still the only floor, in both target paths',
+     (src.match(/Math\.max\((?:kcal, )?1300/g) || []).length >= 1
+     && src.includes('Math.max(1300,'));
 
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail) process.exit(1);

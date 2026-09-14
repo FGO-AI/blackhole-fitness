@@ -2919,6 +2919,31 @@ const INTAKE_FALLBACK = {
   unusable: "I couldn't pull anything usable out of that. These questions will get there.",
 };
 
+/* A stated rate or deadline never touches the math — GOAL_TUNING's bounded
+   adjustment and the 1,300 kcal floor stay the only levers. What it earns is
+   a plain sentence saying so, because silently dropping a deadline someone
+   typed is worse than telling them it was ignored. Read from the user's own
+   words, so the model is not consulted and cannot suppress it. */
+const RATE_WEIGHT   = /\b\d+\s*(lbs?|pounds?|kgs?|kilos?|kilograms?|stones?)\b/i;
+/* `may` is safe in the month list: \b after it means 'maybe' cannot match */
+const RATE_DEADLINE = /\b(in|within)\s+(a|one|\d+)\s*(day|week|month)s?\b|\bby\s+(next\s+)?(january|february|march|april|may|june|july|august|september|october|november|december|summer|christmas|new year|the wedding|my wedding)\b/i;
+const RATE_LOWCAL   = /\b(cut|drop|get|go)\b[\s\S]{0,24}\bto\s+\d{3,4}\s*(cal|calorie|kcal)/i;
+const RATE_URGENT   = /\b(as fast as possible|as quickly as possible|asap|crash diet|drastic(ally)?)\b/i;
+const ratePressure = t => typeof t === 'string' &&
+  ((RATE_WEIGHT.test(t) && RATE_DEADLINE.test(t)) || RATE_LOWCAL.test(t) || RATE_URGENT.test(t));
+
+/* What the plan actually produces, per goal. A range where the arithmetic
+   gives one: the adjustment is a percentage of TDEE, so the weekly figure
+   moves with bodyweight, and a single number would be tidier than it is
+   true. No value here is computed from the user — nothing is known about
+   their body yet at this point in the flow. */
+const PACE_LINE = {
+  lose:     'a steady loss of around half a kilo — about a pound — a week',
+  gain:     'a small surplus: roughly a quarter to a third of a kilo a week',
+  endure:   'weight holding steady, because endurance performs best fuelled at maintenance',
+  maintain: 'weight holding steady while training improves body composition',
+};
+
 /* The Edge Function validates its own output, but the client decides what
    reaches state, and every one of these vocabularies already lives here.
    Anything outside them becomes null, which the confirm screen renders as a
@@ -3113,6 +3138,13 @@ function pageConfirm(){
       <label class="fl">The kit you named</label>
       ${toggleChips('toggleKit', EQUIP_DETAIL_LABEL, d.equipDetail)}
       <div class="mut" style="font-size:12.5px;margin:-8px 0 0">More precise than the three levels above, so this is what your sessions are picked from.</div>
+    </div>` : ''}
+
+    ${ratePressure(state.intake.text) ? `
+    <div class="card rv" style="border-color:var(--ember-mid)">
+      <div class="fl" style="margin-bottom:6px">About the pace</div>
+      <p class="mut" style="font-size:13px;line-height:1.65;margin:0">You mentioned a target or a deadline. Your calories are worked out from your own measurements and a bounded adjustment — they do not move to hit a date.${
+        d.goal && PACE_LINE[d.goal] ? ` For ${escHtml(GOALS.find(g => g.id === d.goal).label.toLowerCase())} that comes out at ${escHtml(PACE_LINE[d.goal])}.` : ''} That is a pace that sticks; faster than that tends not to.</p>
     </div>` : ''}
 
     ${p.unparsed.length ? `
