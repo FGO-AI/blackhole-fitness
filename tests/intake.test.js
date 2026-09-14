@@ -235,6 +235,34 @@ const reply = (status, body) => async () => ({
      (h.match(/class="needs"/g) || []).length === 2, String((h.match(/class="needs"/g) || []).length));
   ok('…and the screen says how many are left', /2 still to answer/.test(h));
 
+  /* the same structural check render-pages.test.js applies to every other
+     page: a template literal with a branch in it is where an unclosed tag or
+     a leaked undefined hides */
+  const balance = html => {
+    const n = re => (html.match(re) || []).length;
+    return { div:[n(/<div\b/g), n(/<\/div>/g)], button:[n(/<button\b/g), n(/<\/button>/g)],
+             span:[n(/<span\b/g), n(/<\/span>/g)], p:[n(/<p\b/g), n(/<\/p>/g)],
+             ul:[n(/<ul\b/g), n(/<\/ul>/g)], li:[n(/<li\b/g), n(/<\/li>/g)],
+             textarea:[n(/<textarea\b/g), n(/<\/textarea>/g)], label:[n(/<label\b/g), n(/<\/label>/g)] };
+  };
+  const bal = (name, html) => {
+    const bad = Object.entries(balance(html)).filter(([, [o, c]]) => o !== c);
+    ok(name + ' — tags balanced', bad.length === 0, JSON.stringify(bad));
+    const leak = (html.match(/.{0,40}(undefined|NaN|\[object Object\]).{0,40}/) || [''])[0];
+    ok(name + ' — nothing leaked', !leak, leak);
+  };
+  S.state.intake.text = 'lose weight';
+  bal('describe', S.pageDescribe());
+  S.state.intake.busy = true;  bal('describe (busy)', S.pageDescribe());  S.state.intake.busy = false;
+  S.state.draft = S.draftFromParsed(S.sanitizeParsed(clone(GOOD)));
+  bal('confirm (complete)', S.pageConfirm());
+  S.state.draft.days = null; S.state.draft.equip = null;
+  bal('confirm (incomplete)', S.pageConfirm());
+  S.state.draft = S.draftFromParsed(S.sanitizeParsed({ ...clone(GOOD),
+    days:3, trainingDays:[0,2,4], equipDetail:[], unparsed:[], summary:'' }));
+  bal('confirm (weekdays named, nothing unparsed)', S.pageConfirm());
+  bal('support', S.pageSupport('one\n\ntwo'));
+
   h = S.pageSupport('first paragraph\n\nsecond paragraph');
   ok('the support screen renders both paragraphs',
      h.includes('first paragraph') && h.includes('second paragraph'));
