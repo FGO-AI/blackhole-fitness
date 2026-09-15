@@ -37,9 +37,18 @@
      ~400KB of blocking JS in <head> was the whole first-paint budget. Deferred
      scripts run in order after the document parses but BEFORE DOMContentLoaded,
      which is what boot() waits for at the bottom of the inline script — so both
-     are guaranteed present by the time anything touches them. -->
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+     are guaranteed present by the time anything touches them.
+     Both are pinned to an exact version and carry an integrity hash, so a CDN
+     file that changes under us is refused rather than run, and the app degrades
+     exactly as it does when the CDN is down. crossorigin="anonymous" is what
+     lets the browser check the hash at all. Moving a version means a new hash
+     here, the same URL in sw.js's CDN_ASSETS and in tests/sri.test.js, then
+     `node tests/sri.browser.js`. Turnstile's api.js below is deliberately
+     unhashed: Cloudflare updates it in place. -->
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"
+  integrity="sha512-dLxUelApnYxpLt6K2iomGngnHO83iUvZytA3YjDUCjT0HDOHKXnVYdf3hU4JjM8uEhxf9nD1/ey98U3t2vZ0qQ==" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0/dist/umd/supabase.min.js"
+  integrity="sha384-JBR+x8blGwjDRO63aHCGiZMD4VNiTR4ZUGA+N6ZKLf3zNt1fK8IBpcgPaMrxqWBp" crossorigin="anonymous"></script>
 <!-- Turnstile, explicit render: the widget is mounted by hand after each page
      build rather than by scanning the document, because the account page is
      rebuilt from a template string every refresh. Deferred like the other two,

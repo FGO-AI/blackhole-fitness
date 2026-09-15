@@ -10,7 +10,7 @@
    navigations go to the network first (see the fetch handler), so a deploy
    where someone forgets to bump this still reaches users on their next load.
    That forgetting is exactly what hid two weeks of shipped work before. */
-const CACHE = 'bhf-v21';
+const CACHE = 'bhf-v22';
 
 const LOCAL_ASSETS = [
   './',
@@ -21,10 +21,12 @@ const LOCAL_ASSETS = [
   './icon-512.png',
   './icon-512-maskable.png',
 ];
-/* external deps — best-effort so a CDN hiccup can't fail the install */
+/* external deps — best-effort so a CDN hiccup can't fail the install. Each must
+   be the exact URL index.html requests, or the offline copy is never used
+   (tests/sri.test.js checks). */
 const CDN_ASSETS = [
   'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
-  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js',
+  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0/dist/umd/supabase.min.js',
 ];
 
 self.addEventListener('install', (e) => {

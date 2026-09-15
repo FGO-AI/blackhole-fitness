@@ -137,7 +137,7 @@ console.log('\n-- 5. NON-NAVIGATION REQUESTS: cache-first, unchanged --');
   ok('network was NOT touched', env.log.fetches.length === 0, JSON.stringify(env.log.fetches));
 }
 {
-  const CDN = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
+  const CDN = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0/dist/umd/supabase.min.js';
   const env = makeEnv({ cacheSeed:{ [CACHE]: {} }, network: async () => new Res('lib', { tag:'CDN' }) });
   const res = await dispatch(env.handlers, asset(CDN));
   ok('uncached CDN script falls through to the network', res.tag === 'CDN');
