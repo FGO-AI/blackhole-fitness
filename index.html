@@ -2994,7 +2994,13 @@ async function parseGoalText(text){
   try {
     const res = await fetch(PARSE_URL, {
       method: 'POST',
-      headers: { 'Content-Type':'application/json', 'Authorization':'Bearer ' + token },
+      /* apikey as well as the bearer token: this is a raw fetch, not a
+         supabase-js call, and supabase-js sends both on every request. The
+         publishable key is already public in this file — see above — so this
+         discloses nothing, and without it a gateway that wants it answers
+         401, which is indistinguishable from being signed out. */
+      headers: { 'Content-Type':'application/json', 'apikey': SUPABASE_ANON_KEY,
+                 'Authorization':'Bearer ' + token },
       body: JSON.stringify({ text }),
       signal: ctl ? ctl.signal : undefined,
     });

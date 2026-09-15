@@ -362,6 +362,29 @@ const reply = (status, body) => async () => ({
   ok('the function pins the model explicitly',
      /model: "claude-opus-5"/.test(fn));
 
+  /* the four things the pre-deploy audit turned up */
+  ok('CORS never falls back to a wildcard when the secret is unset',
+     /ALLOWED_ORIGIN"\) \?\? SITE_ORIGIN/.test(fn) && !/\?\? "\*"/.test(fn));
+  ok('…and the fallback origin is the real site',
+     /const SITE_ORIGIN = "https:\/\/fgo-ai\.github\.io"/.test(fn));
+  ok('a missing key is caught BEFORE the quota is claimed, not after',
+     fn.indexOf('ANTHROPIC_API_KEY is not set') < fn.indexOf('claim_parse_goal_call'),
+     `key check at ${fn.indexOf('ANTHROPIC_API_KEY is not set')}, claim at ${fn.indexOf('claim_parse_goal_call')}`);
+  ok('…and the key is still checked before the client is constructed',
+     fn.indexOf('ANTHROPIC_API_KEY is not set') < fn.indexOf('new Anthropic('));
+  const tm = fn.match(/new Anthropic\(\{ apiKey, timeout: ([\d_]+), maxRetries: (\d+) \}\)/);
+  ok('the model call carries a server-side deadline', !!tm, 'no timeout on the Anthropic client');
+  if (tm){
+    const worst = Number(tm[1].replace(/_/g, '')) * (Number(tm[2]) + 1);
+    ok(`…and its worst case (${worst}ms) lands inside the client abort (${S.PARSE_TIMEOUT_MS ?? 20000}ms)`,
+       worst < 20000, String(worst));
+  }
+  ok('the client sends apikey as well as the bearer token',
+     /'apikey': SUPABASE_ANON_KEY/.test(src));
+  ok('…and it is the publishable key, never a service_role key',
+     /SUPABASE_ANON_KEY = 'sb_publishable_/.test(src)
+     && !/service_role\s*[:=]\s*['"]/.test(src));
+
   ok('the rate-limit counter lives in Postgres, not in the stateless function',
      /create table if not exists public\.parse_goal_calls/.test(sql));
   ok('…with RLS on and no policy, so no client can reset it',

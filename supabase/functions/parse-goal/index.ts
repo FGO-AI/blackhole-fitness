@@ -38,6 +38,11 @@ const EQUIP_DETAIL = [
 const EXP = ["beginner", "intermediate", "advanced"] as const;
 const AVOID = ["running", "jumping", "overhead", "heavy-spinal", "swimming"] as const;
 
+/* Where the app actually lives. ALLOWED_ORIGIN overrides it for local work,
+   but an unset secret must not silently open the endpoint to every site —
+   a stolen token plus "*" is a working cross-origin call. */
+const SITE_ORIGIN = "https://fgo-ai.github.io";
+
 const MAX_TEXT = 500;
 const MAX_UNPARSED = 5;
 const MAX_SUMMARY = 240;
@@ -141,7 +146,7 @@ const conf = (v: unknown): number =>
   typeof v === "number" && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
 
 Deno.serve(async (req: Request) => {
-  const origin = Deno.env.get("ALLOWED_ORIGIN") ?? "*";
+  const origin = Deno.env.get("ALLOWED_ORIGIN") ?? SITE_ORIGIN;
 
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS(origin) });
   if (req.method !== "POST") return json({ error: "method" }, 405, origin);
@@ -175,7 +180,17 @@ Deno.serve(async (req: Request) => {
     return json({ blocked: true, message: SUPPORT_MESSAGE }, 200, origin);
   }
 
-  /* ── 4. rate limit — atomic, in Postgres, under the caller's own uid ── */
+  /* ── 4. configured at all? ──
+     Checked before the quota is claimed, not after: a deploy missing its
+     secret used to 503 while still spending one of the user's ten calls, so
+     a misconfiguration quietly exhausted people's hour. */
+  const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
+  if (!apiKey) {
+    console.error("ANTHROPIC_API_KEY is not set");
+    return json({ error: "upstream" }, 503, origin);
+  }
+
+  /* ── 5. rate limit — atomic, in Postgres, under the caller's own uid ── */
   const { data: claim, error: claimErr } = await supa.rpc("claim_parse_goal_call");
   if (claimErr) {
     console.error("rate limit rpc failed:", claimErr.message);
@@ -186,16 +201,14 @@ Deno.serve(async (req: Request) => {
     return json({ error: "rate", resetAt: gate?.reset_at ?? null }, 429, origin);
   }
 
-  /* ── 5. the parse ── */
-  const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
-  if (!apiKey) {
-    console.error("ANTHROPIC_API_KEY is not set");
-    return json({ error: "upstream" }, 503, origin);
-  }
-
+  /* ── 6. the parse ── */
   let raw: z.infer<typeof ParsedSchema> | null = null;
   try {
-    const client = new Anthropic({ apiKey });
+    /* The client gives up at 20s (PARSE_TIMEOUT_MS). Bound this below that —
+       9s x (1 retry + 1) = 18s worst case — so a slow call returns a 502 the
+       client understands instead of being orphaned and billed for an answer
+       no one is still waiting for. */
+    const client = new Anthropic({ apiKey, timeout: 9_000, maxRetries: 1 });
     const res = await client.messages.parse({
       model: "claude-opus-5",
       max_tokens: 2000,
@@ -221,12 +234,12 @@ Deno.serve(async (req: Request) => {
   }
   if (!raw) return json({ error: "unusable" }, 200, origin);
 
-  /* ── 6. the model's flag, as a second chance at the same gate ── */
+  /* ── 7. the model's flag, as a second chance at the same gate ── */
   if (raw.concern === true) {
     return json({ blocked: true, message: SUPPORT_MESSAGE }, 200, origin);
   }
 
-  /* ── 7. rebuild the response from the whitelist ──
+  /* ── 8. rebuild the response from the whitelist ──
      Assembled field by field rather than passed through. This is what makes
      "the model never returns calories, macros, workouts or a schedule" a
      property of the code instead of a promise in a prompt: a field that is

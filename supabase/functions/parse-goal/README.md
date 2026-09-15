@@ -39,8 +39,10 @@ supabase secrets set ALLOWED_ORIGIN=https://fgo-ai.github.io
 `SUPABASE_URL` and `SUPABASE_ANON_KEY` are injected by the platform — do not
 set those yourself.
 
-`ALLOWED_ORIGIN` is the CORS allow-list. Leave it unset only for local testing;
-unset means `*`, which lets any site call the endpoint with a stolen token.
+`ALLOWED_ORIGIN` is the CORS allow-list. It is optional: unset, the function
+falls back to the `SITE_ORIGIN` constant in `index.ts`, which is the real site.
+It never falls back to `*`. Set it only when you need a different origin, such
+as local testing.
 
 ## 3. Deploy
 
