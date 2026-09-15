@@ -63,17 +63,29 @@ ok('pre-fix key really was undefined', S.FOOD_DB[oldWay] === undefined, String(S
 ok('|| [] guard yields an array', Array.isArray(S.FOOD_DB['bogus'] || []));
 
 console.log('\n── B-05 · repairShapes hardening ──');
+/* Each scenario breaks ONE thing in an otherwise valid blob. These used to sit
+   on a bare { kcal:2000 } plan, which the plan validation now rejects on its
+   own — every scenario would have "passed" whatever it broke. So the base is a
+   real plan, and each scenario also asserts what happened to the profile.
+   (Field-by-field plan checks are in plan-shape.test.js.) */
+const validProfile = () => ({ goal:'gain', units:'metric', name:'Alex', sex:'m', age:'28', h:'178', w:'77',
+  activity:1.55, actLabel:'Moderately active', exp:'intermediate', days:4, equip:'gym' });
+const validBlob = () => {
+  S.state.profile = validProfile(); S.state.goal = 'gain';
+  return JSON.parse(JSON.stringify({ profile:validProfile(), plan:S.computePlan(), goal:'gain' }));
+};
 const scenarios = [
-  ['profile with no name',   { profile:{}, plan:{kcal:2000}, goal:'gain' }],
-  ['profile.name not string',{ profile:{name:42}, plan:{kcal:2000}, goal:'gain' }],
-  ['profile.name blank',     { profile:{name:'   '}, plan:{kcal:2000}, goal:'gain' }],
-  ['plan missing kcal',      { profile:{name:'Alex'}, plan:{}, goal:'gain' }],
-  ['plan is null',           { profile:{name:'Alex'}, plan:null, goal:'gain' }],
-  ['goal not in GOALS',      { profile:{name:'Alex'}, plan:{kcal:2000}, goal:'nonsense' }],
-  ['meals not an object',    { profile:{name:'Alex'}, plan:{kcal:2000}, goal:'gain', meals:'oops' }],
-  ['done not an array',      { profile:{name:'Alex'}, plan:{kcal:2000}, goal:'gain', done:'oops' }],
+  ['profile with no name',   b => { delete b.profile.name; },  true],
+  ['profile.name not string',b => { b.profile.name = 42; },    true],
+  ['profile.name blank',     b => { b.profile.name = '   '; }, true],
+  ['plan missing kcal',      b => { delete b.plan.kcal; },     true],
+  ['plan is null',           b => { b.plan = null; },          true],
+  ['goal not in GOALS',      b => { b.goal = 'nonsense'; },    true],
+  ['meals not an object',    b => { b.meals = 'oops'; },       false],
+  ['done not an array',      b => { b.done = 'oops'; },        false],
 ];
-for (const [label, blob] of scenarios) {
+for (const [label, breakIt, resets] of scenarios) {
+  const blob = validBlob(); breakIt(blob);
   Object.assign(S.state, { profile:null, plan:null, goal:null, meals:S.freshMeals(),
                            done:[], recents:[], favorites:[], customFoods:[] }, blob);
   let threw = null;
@@ -88,12 +100,15 @@ for (const [label, blob] of scenarios) {
     void first;
   } catch (e) { menuThrew = e; }
   ok(label + ' → Menu renders', !menuThrew, menuThrew && menuThrew.message);
+  ok(label + (resets ? ' → profile, plan and goal reset together' : ' → the valid profile is kept'),
+     resets ? (!S.state.profile && !S.state.plan && !S.state.goal)
+            : (!!S.state.profile && !!S.state.plan && S.state.goal === 'gain'));
 }
 // a genuinely valid profile must survive untouched
-Object.assign(S.state, { profile:{name:'Alex', days:4}, plan:{kcal:2600}, goal:'gain',
-                         meals:S.freshMeals(), done:[], recents:[], favorites:[], customFoods:[] });
+Object.assign(S.state, { meals:S.freshMeals(), done:[], recents:[], favorites:[], customFoods:[] }, validBlob());
 S.repairShapes();
-ok('valid profile is preserved', S.state.profile && S.state.profile.name === 'Alex' && S.state.goal === 'gain');
+ok('valid profile is preserved', S.state.profile && S.state.profile.name === 'Alex' && S.state.goal === 'gain'
+   && S.state.plan && S.state.plan.kcal > 0);
 
 console.log('\n── C-04 · foodPool caching + totals single pass ──');
 S.state.customFoods = [];

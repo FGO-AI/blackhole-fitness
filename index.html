@@ -951,6 +951,111 @@ const DURABLE  = ['goal','profile','plan','done','meals','recents','favorites','
 const freshMeals = () => ({ Breakfast:[], Lunch:[], Dinner:[], Snack:[] });
 
 function durableSlice(){ const s = {}; for (const k of DURABLE) s[k] = state[k]; return s; }
+/* ---- what a saved plan may contain ----
+   pagePlanFull renders state.plan exactly as stored: loadState and
+   loadCloudState copy it straight out of the blob, and it only goes through
+   computePlan() again when the profile changes. So it is checked the way the
+   page will read it. Nothing in a plan is typed by a person — every field is a
+   number computePlan() derived or a string from this file's own tables — so
+   each is held to what computePlan() can produce: numbers by type and range
+   (the ranges cover the whole validated input space, age 14–90, 30–300 kg,
+   3–8 ft / 120–230 cm, with room to spare), strings by membership in their
+   set, and fields computePlan() derives from other fields must still agree
+   with them. One failure rejects the plan, and repairShapes() nulls it with
+   the profile and goal, as before.
+
+   "Can produce" means any version of the app, not just this one: every
+   computePlan() in the git history was run over that input space against this
+   check (tests/plan-history.git.js; samples in tests/fixtures/). Older plans
+   differ in exactly two ways, both accepted: no `substitutions` field, and a
+   muscle-building cardio day stored as goal 'lose' plus the template's virtual
+   category 'conditioning' instead of the shelf it was drawn from.
+
+   Sessions are matched by goal, category AND name, because names repeat
+   across shelves. Tag, duration and burn are checked against the library's
+   sets and bounds rather than for equality with today's entry, so a later edit
+   to a burn estimate cannot reset every profile whose plan includes that
+   session. Renaming or removing a library entry still would. */
+function planShapeOK(p, pf){
+  const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+  const own   = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
+  const int   = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+  const num   = (v, lo, hi) => Number.isFinite(v) && v >= lo && v <= hi;
+  const oneOf = (v, set) => set.includes(v);
+  if (!isObj(p)) return false;
+
+  /* energy and macros */
+  if (!int(p.kcal, 1300, 10000) || p.kcal % 10 !== 0) return false;
+  if (typeof p.floored !== 'boolean' || (p.floored && p.kcal !== 1300)) return false;
+  if (!int(p.bmr, 200, 6000) || !int(p.tdee, 200, 10000)) return false;
+  if (!int(p.protein, 20, 700) || !int(p.carbs, 0, 1500) || !int(p.fat, 30, 350)) return false;
+  if (p.proteinCal !== p.protein * 4 || p.carbCal !== p.carbs * 4 || p.fatCal !== p.fat * 9) return false;
+  if (p.proteinPerMeal !== Math.round(p.protein / 4)) return false;
+  if (!int(p.dailyDelta, -5000, 5000) || Math.abs(p.dailyDelta - (p.kcal - p.tdee)) > 1) return false;
+
+  /* body context and projection */
+  if (!num(p.bmi, 3, 400) || !oneOf(p.bmiCat, ['underweight','healthy range','overweight','obese range'])) return false;
+  if (!num(p.waterL, 0.5, 20) || !oneOf(p.steps, ['10,000','8,000'])) return false;
+  if (!num(p.weeklyChange, 0, 10) || !num(p.projChange, 0, 150) || p.horizonWeeks !== 12) return false;
+  if (!oneOf(p.changeUnit, ['kg','lb']) || !oneOf(p.projDir, ['gain','lose','maintain'])) return false;
+
+  /* the four meals, in their fixed order */
+  const MEALS = ['Breakfast','Lunch','Dinner','Snack'];
+  if (!Array.isArray(p.meals) || p.meals.length !== MEALS.length
+      || !p.meals.every((m, i) => isObj(m) && m.name === MEALS[i]
+                               && ['kcal','p','c','f'].every(k => int(m[k], 0, 10000)))) return false;
+
+  /* the week: Mon..Sun in order, each a rest day or a session off a real shelf */
+  const tags = new Set();
+  for (const g of Object.keys(WORKOUTS_SPECIALIZED))
+    for (const c of Object.keys(WORKOUTS_SPECIALIZED[g]))
+      for (const w of WORKOUTS_SPECIALIZED[g][c]) tags.add(w.tag);
+  if (!Array.isArray(p.schedule) || p.schedule.length !== DAYNAMES.length) return false;
+  let sessions = 0, minutes = 0, burn = 0;
+  const covered = [];
+  for (let i = 0; i < DAYNAMES.length; i++){
+    const s = p.schedule[i];
+    if (!isObj(s) || s.day !== DAYNAMES[i]) return false;
+    if (own(s, 'rest')){
+      if (s.rest !== true || Object.keys(s).length !== 2) return false;
+      continue;
+    }
+    const src = own(CAT_SOURCE, s.cat) ? CAT_SOURCE[s.cat] : null;
+    const shelf = !own(WORKOUTS_SPECIALIZED, s.g) ? null
+      : src ? (src[0] === s.g ? WORKOUTS_SPECIALIZED[src[0]][src[1]] : null)
+      : own(WORKOUTS_SPECIALIZED[s.g], s.cat) ? WORKOUTS_SPECIALIZED[s.g][s.cat] : null;
+    const w = s.w;
+    if (!shelf || !isObj(w) || typeof w.name !== 'string' || !shelf.some(x => x.name === w.name)) return false;
+    if (!tags.has(w.tag) || !int(w.duration, 1, 600) || !int(w.burn, 1, 5000)) return false;
+    sessions++; minutes += w.duration; burn += w.burn;
+    /* computePlan's labelFor(), so coverage can be compared exactly */
+    const label = s.cat === 'conditioning' ? 'Cardio' : (own(CAT_LABEL, s.cat) ? CAT_LABEL[s.cat] : s.cat);
+    if (!covered.includes(label)) covered.push(label);
+  }
+  if (sessions < 3 || sessions > 6 || (pf && pf.days !== sessions)) return false;
+  if (p.weeklyMinutes !== minutes || p.weeklyBurn !== burn) return false;
+  if (!Array.isArray(p.coverage) || p.coverage.length !== covered.length
+      || !p.coverage.every((c, i) => c === covered[i])) return false;
+
+  /* absent on plans saved before substitutions existed */
+  if (own(p, 'substitutions') && (!Array.isArray(p.substitutions)
+      || !p.substitutions.every(x => isObj(x) && own(CAT_LABEL, x.from) && own(CAT_LABEL, x.to)))) return false;
+  return true;
+}
+
+/* The profile fields the Blueprint renders beside the plan. Each is picked
+   from a fixed list — the wizard's options, or the confirm screen's chips,
+   which use the same values — so each must be on that list. The name is the
+   only profile field a person types, and it is escaped wherever it is shown. */
+function profileChoicesOK(pf){
+  const own = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
+  return GOALS.some(g => g.id === pf.goal)
+      && Number.isInteger(pf.days) && own(DAY_PATTERNS, String(pf.days))
+      && own(EXP_NOTE, pf.exp)
+      && own(EQUIP_NOTE, pf.equip)
+      && ACTIVITY_LEVELS.some(a => a.l === pf.actLabel);
+}
+
 function repairShapes(){
   if (!state.meals || typeof state.meals !== 'object') state.meals = freshMeals();
   for (const m of Object.keys(freshMeals())) if (!Array.isArray(state.meals[m])) state.meals[m] = [];
@@ -1008,11 +1113,16 @@ function repairShapes(){
   /* profile/plan/goal are read unguarded by pageMenu (pf.name.trim(),
      goalData().icon), so a malformed blob from an old save or a synced row
      would throw inside mountPage and leave a blank stage. All three have
-     working null paths — the guest Menu — so repair to null, not to a stub. */
+     working null paths — the guest Menu — so repair to null, not to a stub.
+     The plan, and the profile choices rendered beside it, are held to what the
+     app can actually have written: see planShapeOK() and profileChoicesOK(). */
   const pf = state.profile;
-  if (!pf || typeof pf !== 'object' || typeof pf.name !== 'string' || !pf.name.trim()) state.profile = null;
-  if (!state.plan || typeof state.plan !== 'object' || typeof state.plan.kcal !== 'number') state.plan = null;
+  if (!pf || typeof pf !== 'object' || typeof pf.name !== 'string' || !pf.name.trim()
+      || !profileChoicesOK(pf)) state.profile = null;
+  if (!planShapeOK(state.plan, state.profile)) state.plan = null;
   if (!GOALS.some(g => g.id === state.goal)) state.goal = null;
+  /* commitProfile() is the only writer of either, and sets them together */
+  if (state.profile && state.profile.goal !== state.goal) state.profile = null;
   /* the Menu's "signed-in" branch needs all three together */
   if (!state.profile || !state.plan || !state.goal){
     state.profile = null; state.plan = null; state.goal = null;
@@ -3586,13 +3696,16 @@ function pageAbout(){
 }
 
 /* --- wizard step 3: activity --- */
+/* top level so repairShapes() can check a saved actLabel against the list the
+   wizard actually offers: the label is stored as shown, not as an id */
+const ACTIVITY_LEVELS = [
+  { v:1.2,   l:"Mostly seated",     d:"Desk work, little movement outside training" },
+  { v:1.375, l:"Lightly active",    d:"On your feet some of the day, short walks" },
+  { v:1.55,  l:"Moderately active", d:"Regular movement most days, active job or lifestyle" },
+  { v:1.725, l:"Very active",       d:"Physical job or training hard nearly every day" },
+];
 function pageActivity(){
-  const acts = [
-    { v:1.2,   l:"Mostly seated",     d:"Desk work, little movement outside training" },
-    { v:1.375, l:"Lightly active",    d:"On your feet some of the day, short walks" },
-    { v:1.55,  l:"Moderately active", d:"Regular movement most days, active job or lifestyle" },
-    { v:1.725, l:"Very active",       d:"Physical job or training hard nearly every day" },
-  ];
+  const acts = ACTIVITY_LEVELS;
   return `
     <div class="kicker rv">Analysis · step 3 of 7</div>
     <h1 class="rv">Your normal day,<br>outside the gym?</h1>
