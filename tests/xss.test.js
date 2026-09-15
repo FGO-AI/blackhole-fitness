@@ -217,5 +217,39 @@ console.log('\n== 6. No visible regression for legitimate input ==');
      (h2.match(/value="[^"]*grilled[^"]*"/) || [''])[0]);
 }
 
+console.log('\n== 7. Saved-plan names on the Blueprint ==');
+console.log('   (the plan is rendered as stored — repairShapes only checks that kcal');
+console.log('    is a number — so a hand-edited synced row reaches these sinks)');
+{
+  const { sb } = makeEnv();
+  sb.state.profile = profile(); sb.state.goal = 'gain';
+  const plan = sb.computePlan();
+  plan.meals[0].name = CANARY;
+  const day = plan.schedule.find(s => !s.rest);
+  day.w = { ...day.w, name:CANARY, tag:CANARY };   /* a copy: the library entry stays clean */
+  sb.state.plan = plan;
+  const h = sb.pagePlanFull();
+  ok('meal name: renders escaped', h.includes('<div class="mname">' + ESCAPED + '</div>'));
+  ok('workout name: renders escaped', h.includes('font-size:15px">' + ESCAPED + '</div>'));
+  ok('workout tag: renders escaped', h.includes('<span class="pill em">' + ESCAPED + '</span>'));
+  ok('NO raw <img in the Blueprint (canary planted in these three fields only)',
+     !h.includes('<img'), (h.match(/.{0,50}<img.{0,50}/) || [''])[0]);
+}
+{
+  /* no visible change for a real plan: every name reaches the page exactly once-escaped */
+  const { sb } = makeEnv();
+  sb.state.profile = profile(); sb.state.goal = 'gain';
+  sb.state.plan = sb.computePlan();
+  const h = sb.pagePlanFull();
+  const days = sb.state.plan.schedule.filter(s => !s.rest);
+  ok('every workout name and tag of a real plan still renders',
+     days.every(s => h.includes('font-size:15px">' + sb.escHtml(s.w.name) + '</div>')
+                  && h.includes('<span class="pill em">' + sb.escHtml(s.w.tag) + '</span>')),
+     days.map(s => s.w.name).join(', '));
+  ok('every meal name of a real plan still renders',
+     sb.state.plan.meals.every(m => h.includes('<div class="mname">' + sb.escHtml(m.name) + '</div>')));
+  ok('nothing double-escaped', !h.includes('&amp;amp;') && !h.includes('&amp;#39;'));
+}
+
 console.log('\n' + '='.repeat(58) + '\n  ' + pass + ' passed, ' + fail + ' failed\n' + '='.repeat(58));
 process.exit(fail ? 1 : 0);

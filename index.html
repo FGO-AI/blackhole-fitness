@@ -3834,7 +3834,7 @@ function pagePlanFull(){
     <p class="mut rv" style="font-size:13px;line-height:1.6;margin:-2px 0 12px">A simple 4-part structure that lands your targets without counting every bite.</p>
     ${p.meals.map((m,i)=>`
       <div class="mealrow ${i%2?'rv-r':'rv-l'}">
-        <div class="mname">${m.name}</div>
+        <div class="mname">${escHtml(m.name)}</div>
         <div style="flex:1">
           <div class="mmac">P ${m.p}g · C ${m.c}g · F ${m.f}g</div>
         </div>
@@ -3893,8 +3893,8 @@ function pagePlanFull(){
           <span class="daybadge">${s.day}</span>
           <div style="flex:1">
             <div class="mut" style="font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ember);margin-bottom:2px">${CAT_LABEL[s.cat] || s.cat}</div>
-            <div style="font-weight:700;font-size:15px">${s.w.name}</div>
-            <div class="mut" style="font-size:12px;margin-top:2px"><span class="pill em">${s.w.tag}</span> &nbsp;${s.w.duration} min · ~${s.w.burn} kcal</div>
+            <div style="font-weight:700;font-size:15px">${escHtml(s.w.name)}</div>
+            <div class="mut" style="font-size:12px;margin-top:2px"><span class="pill em">${escHtml(s.w.tag)}</span> &nbsp;${s.w.duration} min · ~${s.w.burn} kcal</div>
           </div>
           <span style="color:var(--ember);font-size:18px">→</span>
         </div>
