@@ -1,10 +1,4 @@
-# `supabase link` and `supabase functions serve` write local CLI state here.
-# It holds the linked project ref and local scratch, not secrets — but it is
-# machine-local and must not travel with the repo.
-supabase/.temp/
-supabase/.branches/
-
-# Secrets are set with `supabase secrets set`, never from a file. If one of
-# these ever appears here it is a mistake, so they are ignored on principle.
+# This app holds no secrets. If an env file ever appears here it is a
+# mistake, so they are ignored on principle.
 .env
 .env.*

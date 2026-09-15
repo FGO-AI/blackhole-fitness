@@ -1,0 +1,111 @@
+function computePlan(){
+  const d = state.profile;
+  const kg = d.units === 'imp' ? +d.w * 0.4536 : +d.w;
+  const cm = d.units === 'imp' ? (+d.ft * 12 + (+d.inch || 0)) * 2.54 : +d.h;
+  const bmr  = 10*kg + 6.25*cm - 5*(+d.age) + (d.sex === 'm' ? 5 : -161);
+  const tdee = bmr * d.activity;
+  const tune = GOAL_TUNING[d.goal];
+  let kcal = Math.round(tdee * (1 + tune.adj) / 10) * 10;
+  const floored = kcal < 1300;
+  kcal = Math.max(kcal, 1300);
+  const protein = Math.round(kg * tune.prot);
+  const fat     = Math.round(kcal * 0.27 / 9);
+  const carbs   = Math.max(Math.round((kcal - protein*4 - fat*9) / 4), 0);
+
+  /* The weekdays the user picked, if they picked any. Sorted so the ordered
+     focus-area sequence from SPLIT_TEMPLATES lands across the week in calendar
+     order — which keeps the sequence itself identical to the default, only the
+     weekdays move. Profiles saved before the picker existed have no
+     trainingDays and fall back to the original fixed pattern unchanged. */
+  const chosen = Array.isArray(d.trainingDays) && d.trainingDays.length === +d.days
+    ? [...d.trainingDays].sort((x, y) => x - y)
+    : null;
+  const pattern = chosen || DAY_PATTERNS[d.days] || DAY_PATTERNS[4];
+  const template = (SPLIT_TEMPLATES[d.goal] || SPLIT_TEMPLATES.maintain)[d.days]
+                || (SPLIT_TEMPLATES[d.goal] || SPLIT_TEMPLATES.maintain)[4];
+
+  /* `seen` tallies each shelf as it is used so repeats land on a different
+     session; pickFrom owns the increment because only it knows which shelf a
+     slot finally came from. */
+  const avail = availableEquip(d), avoid = avoidTraits(d);
+  const seen = {}, subs = [], trainingDays = [];
+  pattern.forEach((dayIdx, slot) => {
+    const cat = template[slot % template.length];
+    const picked = pickFrom(d.goal, cat, seen, avail, avoid);
+    if (!picked) return;          /* unreachable — the last rung is bodyweight-only */
+    if (picked.substituted) subs.push(picked.substituted);
+    trainingDays.push({ dayIdx, g:picked.realGoal, cat:picked.realCat, w:picked.w });
+  });
+  /* one line per distinct swap, not one per affected day */
+  const substitutions = [...new Map(subs.map(s => [s.from + '>' + s.to, s])).values()];
+
+  const schedule = DAYNAMES.map((day, i) => {
+    const t = trainingDays.find(x => x.dayIdx === i);
+    return t ? { day, g:t.g, cat:t.cat, w:t.w } : { day, rest:true };
+  });
+
+  /* summary of what the week covers, for the plan page */
+  const labelFor = c => c === 'conditioning' ? 'Cardio' : (CAT_LABEL[c] || c);
+  const coverage = [...new Set(trainingDays.map(t => labelFor(t.cat)))];
+
+  /* ---- premium metrics ---- */
+  /* body context */
+  const hM = cm / 100;
+  const bmi = kg / (hM*hM);
+  const bmiCat = bmi < 18.5 ? 'underweight' : bmi < 25 ? 'healthy range'
+               : bmi < 30 ? 'overweight' : 'obese range';
+
+  /* weekly training load */
+  const weeklyMinutes = trainingDays.reduce((s,t) => s + t.w.duration, 0);
+  const weeklyBurn    = trainingDays.reduce((s,t) => s + t.w.burn, 0);
+
+  /* energy balance & timeline projection */
+  const dailyDelta = kcal - tdee;                 /* +surplus / −deficit */
+  /* ~7700 kcal per kg of body mass */
+  const weeklyKg = (dailyDelta * 7) / 7700;
+  const absWeeklyKg = Math.abs(weeklyKg);
+  const weeklyChange = absWeeklyKg < 0.01 ? 0
+    : (d.units === 'imp' ? absWeeklyKg * 2.2046 : absWeeklyKg);
+  const changeUnit = d.units === 'imp' ? 'lb' : 'kg';
+
+  /* a 12-week horizon projection */
+  const horizonWeeks = 12;
+  const projKg = weeklyKg * horizonWeeks;
+  const projChange = Math.abs(d.units==='imp' ? projKg*2.2046 : projKg);
+  const projDir = kcal > tdee ? 'gain' : kcal < tdee ? 'lose' : 'maintain';
+
+  /* per-meal macro split (3 meals + 1 snack model) */
+  const meals = [
+    { name:'Breakfast', pct:.28 },
+    { name:'Lunch',     pct:.32 },
+    { name:'Dinner',    pct:.30 },
+    { name:'Snack',     pct:.10 },
+  ].map(m => ({
+    name:m.name,
+    kcal:Math.round(kcal*m.pct/10)*10,
+    p:Math.round(protein*m.pct),
+    c:Math.round(carbs*m.pct),
+    f:Math.round(fat*m.pct),
+  }));
+
+  /* hydration scales with training load */
+  const waterL = Math.round((kg*35/1000 + weeklyMinutes/7*0.012) * 10) / 10;
+
+  /* protein per meal target for absorption */
+  const proteinPerMeal = Math.round(protein / 4);
+
+  return {
+    kcal, floored, tdee:Math.round(tdee), bmr:Math.round(bmr),
+    protein, carbs, fat, proteinPerMeal,
+    proteinCal: protein*4, carbCal: carbs*4, fatCal: fat*9,
+    waterL,
+    steps:  d.goal === 'lose' ? '10,000' : '8,000',
+    schedule, coverage, substitutions,
+    bmi: Math.round(bmi*10)/10, bmiCat,
+    weeklyMinutes, weeklyBurn,
+    dailyDelta: Math.round(dailyDelta),
+    weeklyChange: Math.round(weeklyChange*100)/100, changeUnit,
+    projChange: Math.round(projChange*10)/10, projDir, horizonWeeks,
+    meals,
+  };
+}

@@ -1,29 +1,29 @@
 /* Free-text intake — the parser fills the same draft the wizard fills, and
    computePlan() does every calculation from there.
 
-   What is real here and what is not:
-   - sanitizeParsed, draftFromParsed, commitProfile, computePlan, pageDescribe,
-     pageConfirm and pageSupport are the SHIPPED functions, executed.
-   - parseGoalText is executed against a STUBBED fetch. That proves the client's
-     branching, not that the Edge Function works — no request leaves this file.
-   - The Edge Function itself is Deno TypeScript and cannot run under node, so
-     everything in section 7 is a SOURCE check on supabase/functions/parse-goal
-     — proof of what the code says, not of what a deployed function does. */
+   What is real here: sanitizeParsed, parseGoalText, concerningText,
+   draftFromParsed, commitProfile, computePlan, pageDescribe, pageConfirm and
+   pageSupport are the SHIPPED functions, executed. The parser now runs on the
+   device, so unlike the earlier server version nothing here is stubbed: fetch
+   and XMLHttpRequest are replaced with traps that FAIL the test if called.
+
+   tests/parser.test.js holds the phrasing corpus; this file covers the path
+   around it — the gate, the screens, the commit, and the frozen strings. */
 /* read the shipped source with line endings normalised: git's autocrlf
    hands Windows a CRLF working copy, and every pattern here matches on \n */
 const fs = require('fs'), vm = require('vm'), path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const HTML = path.join(ROOT, 'index.html');
-const FN   = path.join(ROOT, 'supabase', 'functions', 'parse-goal', 'index.ts');
 const SQL  = path.join(ROOT, 'supabase-schema.sql');
 const src = fs.readFileSync(HTML, 'utf8').replace(/\r\n/g, '\n');
 const js = src.match(/<script>\n([\s\S]*)\n<\/script>/)[1];
 const EXPORTS = ['state','sanitizeParsed','draftFromParsed','parseGoalText','intakeFallback',
                  'pageDescribe','pageConfirm','pageSupport','pageGoals','commitProfile',
                  'computePlan','CONFIRM_FIELDS','CONF_MIN','MAX_INTAKE','INTAKE_EXAMPLES',
-                 'INTAKE_FALLBACK','PARSE_URL','GOALS','EQUIP_LEVELS','AVOID_VOCAB',
-                 'EQUIP_VOCAB','ROUTES','nav','stack','ratePressure','PACE_LINE'];
+                 'INTAKE_FALLBACK','GOALS','EQUIP_LEVELS','AVOID_VOCAB','EQUIP_VOCAB',
+                 'availableEquip','ROUTES','nav','stack','ratePressure','PACE_LINE',
+                 'concerningText','SUPPORT_MESSAGE','CONCERN_PATTERNS','VERY_LOW_KCAL'];
 const defs = js.slice(0, js.indexOf('/* boot */'))
             + `\n;Object.assign(globalThis, { ${EXPORTS.join(', ')} });\n`;
 
@@ -33,6 +33,8 @@ const fakeEl = {
   textContent:'', dataset:{}, style:{}, value:'',
 };
 const store = {};
+/* any network use by the free-text path is a failure, so the traps count */
+let netCalls = 0;
 const sandbox = {
   window: {}, console,
   matchMedia: () => ({ matches:false }),
@@ -46,9 +48,9 @@ const sandbox = {
     removeItem: k => { delete store[k]; },
   },
   location: { href:'http://x/', protocol:'http:', origin:'http://x', pathname:'/' },
-  navigator: { onLine:true },
-  AbortController: class { constructor(){ this.signal = { aborted:false }; } abort(){ this.signal.aborted = true; } },
-  fetch: null,
+  navigator: { onLine:false },
+  fetch: () => { netCalls++; throw new Error('network is not allowed in the free-text path'); },
+  XMLHttpRequest: class { constructor(){ netCalls++; throw new Error('network is not allowed'); } },
 };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
@@ -71,7 +73,7 @@ const GOOD = {
 };
 const clone = o => JSON.parse(JSON.stringify(o));
 
-/* ═══ 1 · sanitizeParsed is the client's own gate ═══ */
+/* ═══ 1 · sanitizeParsed is the one gate on the vocabulary ═══ */
 console.log('\n── 1 · nothing outside the vocabulary reaches state ──');
 ok('a well-formed payload survives intact',
    JSON.stringify(S.sanitizeParsed(clone(GOOD))) === JSON.stringify(GOOD));
@@ -134,66 +136,37 @@ const nulls = S.draftFromParsed(S.sanitizeParsed({ ...clone(GOOD),
 ok('a null field stays null even at full confidence',
    [nulls.goal, nulls.days, nulls.equip, nulls.exp].every(v => v === null));
 
-/* ═══ 3 · every failure lands in the wizard ═══ */
-console.log('\n── 3 · fallbacks (stubbed fetch — no request leaves this file) ──');
+/* ═══ 3 · the whole path runs on the device ═══
+   Offline, signed out, and with fetch and XMLHttpRequest trapped. If the
+   free-text path needed a network, a server or an account, this shows it. */
+console.log('\n── 3 · offline, signed out, network trapped — executed ──');
 const session = { id:'u1', email:'a@b.c' };
-const fakeSupa = { auth: { getSession: async () => ({ data:{ session:{ access_token:'jwt' } } }) } };
-
-/* The stub must stay installed across every await inside parseGoalText — an
-   earlier version restored it synchronously, which meant the stub was already
-   gone by the time the real fetch call ran and every case looked like a
-   network error. `supa` is a module-level `let`, so it is assigned through the
-   context's global lexical scope rather than as a property of globalThis. */
-async function callParse(fetchImpl, { online = true, sess = session, supa = fakeSupa } = {}){
-  S.navigator.onLine = online;
-  S.state.session = sess;
-  S.supa = supa;
-  vm.runInContext('supa = globalThis.supa;', S);
-  S.fetch = fetchImpl;
-  try { return await S.parseGoalText('lose weight, 4 days, dumbbells'); }
-  finally { S.fetch = null; }
-}
-const reply = (status, body) => async () => ({
-  ok: status >= 200 && status < 300, status, json: async () => body,
-});
+S.state.session = null;
 
 (async () => {
-  ok('signed out → auth fallback',
-     (await callParse(reply(200, {}), { sess:null })).fail === 'auth');
-  ok('no supabase client → auth fallback',
-     (await callParse(reply(200, {}), { supa:null })).fail === 'auth');
-  ok('offline → offline fallback',
-     (await callParse(reply(200, {}), { online:false })).fail === 'offline');
-  ok('429 → rate-limit fallback',
-     (await callParse(reply(429, { error:'rate' }))).fail === 'rate');
-  ok('500 → down fallback',
-     (await callParse(reply(500, { error:'upstream' }))).fail === 'down');
-  ok('502 → down fallback',
-     (await callParse(reply(502, { error:'upstream' }))).fail === 'down');
-  ok('a 200 with no parsed payload → unusable fallback',
-     (await callParse(reply(200, { error:'unusable' }))).fail === 'unusable');
-  ok('unparseable JSON → down fallback',
-     (await callParse(async () => ({ ok:true, status:200, json: async () => { throw new Error('bad'); } }))).fail === 'down');
-  ok('a thrown network error → down fallback',
-     (await callParse(async () => { throw new Error('ECONNREFUSED'); })).fail === 'down');
-  const aborted = await callParse(async () => { const e = new Error('aborted'); e.name = 'AbortError'; throw e; });
-  ok('an aborted request → timeout fallback', aborted.fail === 'timeout', JSON.stringify(aborted));
-  ok('every fallback key has wording to show the user',
-     ['auth','offline','rate','timeout','down','unusable']
-       .every(k => typeof S.INTAKE_FALLBACK[k] === 'string' && S.INTAKE_FALLBACK[k].length > 20));
-  ok('…and every one of them names the questions as the way forward',
-     Object.values(S.INTAKE_FALLBACK).every(m => /question/i.test(m)),
-     Object.entries(S.INTAKE_FALLBACK).filter(([,m]) => !/question/i.test(m)).map(([k]) => k).join(', '));
+  const r1 = S.parseGoalText('lose weight, 4 days a week, dumbbells at home');
+  ok('parseGoalText returns a plain result, not a promise', r1 && typeof r1.then !== 'function');
+  ok('offline and signed out, a description still parses',
+     !!(r1.parsed && r1.parsed.goal === 'lose' && r1.parsed.days === 4), JSON.stringify(r1));
 
-  const blocked = await callParse(reply(200, { blocked:true, message:'fixed support wording' }));
-  ok('a blocked response is surfaced, not treated as a failure',
-     blocked.blocked === true && blocked.message === 'fixed support wording');
-  const good = await callParse(reply(200, { parsed: clone(GOOD) }));
-  ok('a good response comes back sanitized', good.parsed && good.parsed.goal === 'lose');
+  const r2 = S.parseGoalText('I want to stop eating completely and lose 10 lb, 4 days a week');
+  ok('a crisis description is blocked before anything is parsed',
+     r2.blocked === true && !('parsed' in r2), JSON.stringify(r2).slice(0, 120));
+  ok('…with SUPPORT_MESSAGE itself, not an assembled variant', r2.message === S.SUPPORT_MESSAGE);
 
-  ok('the endpoint is the project function URL, not a model vendor',
-     /\/functions\/v1\/parse-goal$/.test(S.PARSE_URL) && !/anthropic|openai/i.test(S.PARSE_URL),
-     S.PARSE_URL);
+  const r3 = S.parseGoalText('zqvx bkrt plmq');
+  ok('a description with nothing recognisable falls back', r3.fail === 'unusable', JSON.stringify(r3));
+  ok('the only failure left is "unusable" — offline, auth, rate and timeout are gone',
+     JSON.stringify(Object.keys(S.INTAKE_FALLBACK)) === '["unusable"]',
+     Object.keys(S.INTAKE_FALLBACK).join(','));
+  ok('…and its wording names the questions as the way forward', /question/i.test(S.INTAKE_FALLBACK.unusable));
+  ok('no network call was attempted across any of that', netCalls === 0, `${netCalls} call(s)`);
+
+  const go = src.slice(src.indexOf("if (a.act === 'intakeGo')"), src.indexOf("if (a.act === 'pickField')"));
+  ok('SOURCE (string check): intakeGo calls the parser directly — no .then, no await',
+     /const res = parseGoalText\(state\.intake\.text\);/.test(go) && !/\.then\(|\bawait\b/.test(go));
+  ok('SOURCE (string check): Goal Analysis opens the free-text screen for everyone, signed in or not',
+     /goals:\s+\(\) => nav\('Goal Analysis', pageDescribe\),/.test(src));
 
   /* ═══ 4 · the screens ═══ */
   console.log('\n── 4 · the intake screens render and escape ──');
@@ -204,8 +177,9 @@ const reply = (status, body) => async () => ({
   ok('…offers the wizard as an always-available alternative', /data-act="useWizard"/.test(h));
   ok('…offers every example as a one-tap fill',
      S.INTAKE_EXAMPLES.every((_, i) => h.includes(`data-act="intakeEg" data-i="${i}"`)));
-  ok('…caps the textarea at the same length the server enforces',
+  ok('…caps the textarea at the same length the parser reads',
      h.includes(`maxlength="${S.MAX_INTAKE}"`) && S.MAX_INTAKE === 500);
+  ok('…and says the description never leaves the device', /never sent anywhere or stored/.test(h));
 
   const XSS = '"><img src=x onerror=alert(1)>';
   S.state.intake.text = XSS;
@@ -217,16 +191,15 @@ const reply = (status, body) => async () => ({
   S.state.draft = S.draftFromParsed(S.state.intake.parsed);
   h = S.pageConfirm();
   ok('confirm screen renders', h.length > 800);
-  ok('the model-authored summary is escaped', !h.includes('<img src=x'));
-  ok('the model-authored unparsed list is escaped',
+  ok('a hostile summary is escaped', !h.includes('<img src=x'));
+  ok('a hostile unparsed entry is escaped',
      (h.match(/&lt;img/g) || []).length >= 2, String((h.match(/&lt;img/g) || []).length));
   ok('every parsed field is shown as an editable chip row',
-     S.CONFIRM_FIELDS.every(x => h.includes(`data-act="pickField"\n             data-f="${x.f}"`)
-                              || h.includes(`data-f="${x.f}"`)));
+     S.CONFIRM_FIELDS.every(x => h.includes(`data-f="${x.f}"`)));
   ok('the avoid list is editable too', /data-act="toggleAvoid"/.test(h));
   ok('named kit is editable too', /data-act="toggleKit"/.test(h));
   ok('Continue is enabled once every required field is set',
-     /data-act="confirmNext" >|data-act="confirmNext"\s*>/.test(h) && !/data-act="confirmNext" disabled/.test(h));
+     /data-act="confirmNext"\s*>/.test(h) && !/data-act="confirmNext" disabled/.test(h));
 
   S.state.draft.days = null; S.state.draft.equip = null;
   h = S.pageConfirm();
@@ -234,6 +207,17 @@ const reply = (status, body) => async () => ({
   ok('…and the unanswered fields are visibly marked',
      (h.match(/class="needs"/g) || []).length === 2, String((h.match(/class="needs"/g) || []).length));
   ok('…and the screen says how many are left', /2 still to answer/.test(h));
+
+  /* The Screen 2 bug this change surfaced. availableEquip prefers named kit
+     over the level, so a level picked on this screen was silently ignored
+     whenever the parser had named kit. First prove the precedence is real —
+     that is why the fix matters — then that the handler clears the kit. */
+  ok('availableEquip really does let named kit outrank the level',
+     JSON.stringify(S.availableEquip({ equip:'gym', equipDetail:['dumbbell'] }).sort())
+       === JSON.stringify(['dumbbell','none']));
+  const pick = src.slice(src.indexOf("if (a.act === 'pickField')"), src.indexOf("if (a.act === 'toggleAvoid'"));
+  ok('SOURCE (string check): changing the equipment level clears the named kit',
+     /if \(f === 'equip'\) state\.draft\.equipDetail = \[\];/.test(pick));
 
   /* the same structural check render-pages.test.js applies to every other
      page: a template literal with a branch in it is where an unclosed tag or
@@ -253,7 +237,6 @@ const reply = (status, body) => async () => ({
   };
   S.state.intake.text = 'lose weight';
   bal('describe', S.pageDescribe());
-  S.state.intake.busy = true;  bal('describe (busy)', S.pageDescribe());  S.state.intake.busy = false;
   S.state.draft = S.draftFromParsed(S.sanitizeParsed(clone(GOOD)));
   bal('confirm (complete)', S.pageConfirm());
   S.state.draft.days = null; S.state.draft.equip = null;
@@ -261,24 +244,25 @@ const reply = (status, body) => async () => ({
   S.state.draft = S.draftFromParsed(S.sanitizeParsed({ ...clone(GOOD),
     days:3, trainingDays:[0,2,4], equipDetail:[], unparsed:[], summary:'' }));
   bal('confirm (weekdays named, nothing unparsed)', S.pageConfirm());
-  bal('support', S.pageSupport('one\n\ntwo'));
+  bal('support', S.pageSupport(S.SUPPORT_MESSAGE));
 
-  h = S.pageSupport('first paragraph\n\nsecond paragraph');
-  ok('the support screen renders both paragraphs',
-     h.includes('first paragraph') && h.includes('second paragraph'));
-  ok('…carries no plan, target or number', !/kcal|calorie|macro|protein/i.test(h));
+  h = S.pageSupport(S.SUPPORT_MESSAGE);
+  ok('the support screen renders every paragraph of the fixed message',
+     S.SUPPORT_MESSAGE.split('\n\n').every(para => h.includes(para.slice(0, 40))));
+  ok('…carries no plan, target or number beyond the helplines',
+     !/kcal|calorie|macro|protein/i.test(h));
   ok('…and still offers the questions', /data-act="useWizard"/.test(h));
-  h = S.pageSupport(XSS);
-  ok('…and escapes the message it was handed', !h.includes('<img src=x'));
+  ok('…and escapes whatever it is handed', !S.pageSupport(XSS).includes('<img src=x'));
 
-  S.state.intake.fallbackMsg = 'The written version isn\'t reachable right now.';
+  S.state.intake.fallbackMsg = S.INTAKE_FALLBACK.unusable;
   h = S.pageGoals();
   ok('the wizard explains why it is showing after a fallback',
-     h.includes('reachable right now'));
+     h.includes("couldn't pull anything usable") || h.includes('couldn&#39;t pull anything usable'));
   S.state.intake.fallbackMsg = XSS;
   ok('…and escapes that message too', !S.pageGoals().includes('<img src=x'));
   S.state.intake.fallbackMsg = '';
-  ok('…and shows no notice when arriving normally', !S.pageGoals().includes('border-color:var(--ember-mid);padding:13px 16px;margin-top:18px'));
+  ok('…and shows no notice when arriving normally',
+     !S.pageGoals().includes('border-color:var(--ember-mid);padding:13px 16px;margin-top:18px'));
 
   /* ═══ 5 · one commit path, one plan ═══ */
   console.log('\n── 5 · a parsed profile and a tapped profile build the same plan ──');
@@ -288,130 +272,81 @@ const reply = (status, body) => async () => ({
                    trainingDays:[0,1,3,4] };
   /* The same ANSWERS, not merely the same shape: free text can carry an avoid
      list and named kit that the wizard has no way to express, and those
-     legitimately change which sessions get picked. Compare a parse that used
-     neither, so any difference would be the commit path drifting. */
-  const plain = { ...clone(GOOD), avoid:[], equipDetail:[] };
-  const parsedDraft = { ...S.draftFromParsed(S.sanitizeParsed(plain)), ...BODY,
+     legitimately change which sessions get picked. */
+  const real = S.parseGoalText('Lose weight, 4 days a week, intermediate, dumbbells and small kit');
+  const parsedDraft = { ...S.draftFromParsed({ ...real.parsed, avoid:[], equipDetail:[] }), ...BODY,
                         trainingDays:[0,1,3,4] };
+  ok('the real parser produced the same four answers the wizard was given',
+     parsedDraft.goal === 'lose' && parsedDraft.days === 4 && parsedDraft.equip === 'basic'
+     && parsedDraft.exp === 'intermediate', JSON.stringify(real.parsed));
 
   S.state.profile = tapped;   const planA = S.computePlan();
   S.state.profile = { ...parsedDraft }; const planB = S.computePlan();
   const differs = Object.keys(planA).filter(k => JSON.stringify(planA[k]) !== JSON.stringify(planB[k]));
   ok('identical answers produce an identical plan whichever path filled them in',
      differs.length === 0, differs.join(', '));
-
   ok('the free-text draft carries no field computePlan does not read',
      !('kcal' in parsedDraft) && !('summary' in parsedDraft) && !('confidence' in parsedDraft));
 
-  /* ═══ 6 · the stated acceptance criteria, end to end ═══ */
-  console.log('\n── 6 · acceptance criteria ──');
-  const fromText = (p, body = BODY) => {
-    S.state.profile = { ...S.draftFromParsed(S.sanitizeParsed(p)), ...body };
+  /* ═══ 6 · the stated acceptance criteria, end to end, from real text ═══ */
+  console.log('\n── 6 · acceptance criteria, from real sentences through the real parser ──');
+  const fromText = (text, body = BODY) => {
+    const r = S.parseGoalText(text);
+    if (!r.parsed) return null;
+    const d = S.draftFromParsed(r.parsed);
+    /* stand in for the user answering whatever Screen 2 left blank */
+    S.state.profile = { goal:'maintain', days:4, equip:'gym', exp:'intermediate',
+                        ...Object.fromEntries(Object.entries(d).filter(([, v]) => v != null)), ...body };
     return S.computePlan();
   };
-  const dumbbells = fromText({ ...clone(GOOD), goal:'gain', equip:'basic',
-    equipDetail:['dumbbell'], avoid:[] });
+  const dumbbells = fromText('I only have dumbbells at home, want to build muscle, 4 days');
   const heavy = ['barbell','machine','pool','specialty','cardio-machine','bike'];
   const badKit = dumbbells.schedule.filter(s => !s.rest && s.w.eq.some(e => heavy.includes(e)));
   ok('"I only have dumbbells at home" → no barbell, machine, sled or pool work',
      badKit.length === 0, badKit.map(s => `${s.w.name}:${s.w.eq}`).join(' | '));
 
-  const knees = fromText({ ...clone(GOOD), goal:'endure', equip:'gym',
-    equipDetail:[], avoid:['running','jumping'] });
+  const knees = fromText('Get my cardio back, 4 days, bad knees so nothing high-impact');
   const badMove = knees.schedule.filter(s => !s.rest && s.w.av.some(a => a === 'running' || a === 'jumping'));
   ok('"bad knees, nothing high-impact" → no running or jumping',
      badMove.length === 0, badMove.map(s => `${s.w.name}:${s.w.av}`).join(' | '));
   ok('…and the week is still full', knees.schedule.filter(s => !s.rest).length === 4);
 
   ok('a stated rate does not move the target — only GOAL_TUNING and the floor do',
-     fromText({ ...clone(GOOD), unparsed:['wants to lose 30 lb in a month'] }).kcal
-       === fromText({ ...clone(GOOD), unparsed:[] }).kcal);
+     fromText('lose 30 lb in a month, 4 days a week, dumbbells').kcal
+       === fromText('lose weight, 4 days a week, dumbbells').kcal);
   ok('and that target still respects the 1300 floor',
-     fromText(clone(GOOD), { ...BODY, w:42, h:150, age:70, sex:'f' }).kcal >= 1300);
+     fromText('lose weight, 3 days, dumbbells', { ...BODY, w:42, h:150, age:70, sex:'f' }).kcal >= 1300);
 
-  /* ═══ 7 · the Edge Function (SOURCE CHECKS — Deno, cannot run here) ═══ */
-  console.log('\n── 7 · parse-goal source (string checks — not an executed function) ──');
-  const fn = fs.readFileSync(FN, 'utf8').replace(/\r\n/g, '\n');
+  /* ═══ 7 · nothing external exists any more ═══ */
+  console.log('\n── 7 · no function, no endpoint, no key, no network ──');
   const sql = fs.readFileSync(SQL, 'utf8').replace(/\r\n/g, '\n');
+  const intake = src.slice(src.indexOf('/* ================= FREE-TEXT INTAKE'),
+                           src.indexOf('/* --- wizard step 1: goal --- */'));
+  ok('the intake module could be located', intake.length > 5000, String(intake.length));
+  ok('the Edge Function source is gone from the repo',
+     !fs.existsSync(path.join(ROOT, 'supabase', 'functions', 'parse-goal')));
+  ok('…and so is the supabase/ directory it lived in', !fs.existsSync(path.join(ROOT, 'supabase')));
+  ok('SOURCE (string check): the intake module makes no network call',
+     !/\bfetch\s*\(|XMLHttpRequest|navigator\.sendBeacon|WebSocket/.test(intake));
+  ok('SOURCE (string check): …and needs no session or Supabase client',
+     !/\bsupa\b|state\.session|getSession/.test(intake));
+  ok('SOURCE (string check): no endpoint, apikey header or Edge Function reference remains anywhere',
+     !/functions\/v1|parse-goal|PARSE_URL|PARSE_TIMEOUT|'apikey'|Edge Function/.test(src));
+  ok('no API key literal anywhere in the client',
+     !/sk-ant-/.test(src) && !/ANTHROPIC/.test(src));
+  ok('the rate-limit table and its function are gone from the schema',
+     !/parse_goal_calls|claim_parse_goal_call/.test(sql));
+  ok('…while every app_data policy is still there',
+     ['select own row','insert own row','update own row','delete own row']
+       .every(p => sql.includes(`create policy "${p}"`)));
+  ok('…including the explicit with check on update',
+     /for update\s+using \(auth\.uid\(\) = user_id\)\s+with check \(auth\.uid\(\) = user_id\)/.test(sql));
+  const gi = fs.readFileSync(path.join(ROOT, '.gitignore'), 'utf8');
+  ok('.gitignore no longer carries Supabase CLI entries', !/supabase\//.test(gi));
 
-  ok('no API key literal anywhere in the client bundle',
-     !/sk-ant-/.test(src) && !/ANTHROPIC_API_KEY/.test(src));
-  ok('the function reads its key from the environment, never a literal',
-     /Deno\.env\.get\("ANTHROPIC_API_KEY"\)/.test(fn) && !/sk-ant-/.test(fn));
-  ok('unauthenticated calls are rejected before anything is spent',
-     /Bearer /.test(fn) && /auth\.getUser\(\)/.test(fn)
-     && fn.indexOf('auth.getUser()') < fn.indexOf('claim_parse_goal_call'));
-  ok('the rate limit is claimed before the paid call',
-     fn.indexOf('claim_parse_goal_call') < fn.indexOf('messages.parse'));
-  ok('the safety gate runs before the paid call too',
-     fn.indexOf('concerningText(text)') < fn.indexOf('claim_parse_goal_call'));
-  ok('input is length-capped server-side, not only in the textarea',
-     /text\.length > MAX_TEXT/.test(fn) && /MAX_TEXT = 500/.test(fn));
-  ok('the response is rebuilt field by field, so extra keys cannot pass through',
-     /const parsed = \{/.test(fn) && !/\.\.\.raw/.test(fn));
-  ok('the prompt forbids calories, macros, workouts and schedules',
-     /Never output calorie targets, macronutrient amounts, workout names/.test(fn));
-  ok('a refusal is checked before the content is read',
-     fn.indexOf('stop_reason === "refusal"') < fn.indexOf('res.parsed_output'));
-  ok('the support wording is a constant in code, not model output',
-     /const SUPPORT_MESSAGE =/.test(fn) && /findahelpline\.com/.test(fn));
-  ok('the safety gate does not depend on the model cooperating',
-     /concerningText/.test(fn) && /raw\.concern === true/.test(fn));
-  ok('only error.message is logged, never the request body',
-     /e instanceof Error \? e\.message/.test(fn) && !/console\.(log|error)\([^)]*\btext\b/.test(fn));
-  ok('the function pins the model explicitly',
-     /model: "claude-opus-5"/.test(fn));
-
-  /* the four things the pre-deploy audit turned up */
-  ok('CORS never falls back to a wildcard when the secret is unset',
-     /ALLOWED_ORIGIN"\) \?\? SITE_ORIGIN/.test(fn) && !/\?\? "\*"/.test(fn));
-  ok('…and the fallback origin is the real site',
-     /const SITE_ORIGIN = "https:\/\/fgo-ai\.github\.io"/.test(fn));
-  ok('a missing key is caught BEFORE the quota is claimed, not after',
-     fn.indexOf('ANTHROPIC_API_KEY is not set') < fn.indexOf('claim_parse_goal_call'),
-     `key check at ${fn.indexOf('ANTHROPIC_API_KEY is not set')}, claim at ${fn.indexOf('claim_parse_goal_call')}`);
-  ok('…and the key is still checked before the client is constructed',
-     fn.indexOf('ANTHROPIC_API_KEY is not set') < fn.indexOf('new Anthropic('));
-  const tm = fn.match(/new Anthropic\(\{ apiKey, timeout: ([\d_]+), maxRetries: (\d+) \}\)/);
-  ok('the model call carries a server-side deadline', !!tm, 'no timeout on the Anthropic client');
-  if (tm){
-    const worst = Number(tm[1].replace(/_/g, '')) * (Number(tm[2]) + 1);
-    ok(`…and its worst case (${worst}ms) lands inside the client abort (${S.PARSE_TIMEOUT_MS ?? 20000}ms)`,
-       worst < 20000, String(worst));
-  }
-  ok('the client sends apikey as well as the bearer token',
-     /'apikey': SUPABASE_ANON_KEY/.test(src));
-  ok('…and it is the publishable key, never a service_role key',
-     /SUPABASE_ANON_KEY = 'sb_publishable_/.test(src)
-     && !/service_role\s*[:=]\s*['"]/.test(src));
-
-  ok('the rate-limit counter lives in Postgres, not in the stateless function',
-     /create table if not exists public\.parse_goal_calls/.test(sql));
-  ok('…with RLS on and no policy, so no client can reset it',
-     /alter table public\.parse_goal_calls enable row level security/.test(sql)
-     && !/create policy .* on public\.parse_goal_calls/.test(sql));
-  ok('…and the limit is a constant in the function, not a caller argument',
-     /hourly_limit constant integer/.test(sql)
-     && /create or replace function public\.claim_parse_goal_call\(\)/.test(sql));
-  ok('…claimed in a single upsert so concurrent calls cannot both read the old count',
-     /on conflict \(user_id\) do update/.test(sql));
-  ok('…and search_path is pinned on the security definer function',
-     /security definer[\s\S]{0,80}set search_path = public, pg_temp/.test(sql));
-
-  /* ═══ 8 · the safety gate, actually executed ═══
-     concerningText is plain JS behind two type annotations, so it is lifted
-     out of the shipped .ts and run for real rather than grepped. This is the
-     one part of the Edge Function these tests genuinely exercise. */
-  console.log('\n── 8 · concerningText (lifted from the shipped .ts and run) ──');
-  const lifted = fn.match(/const CONCERN_PATTERNS[\s\S]*?\n\}\n/);
-  ok('concerningText could be lifted out of the function source', !!lifted);
-  const gateCtx = { RegExp, Number, out:null };
-  vm.createContext(gateCtx);
-  vm.runInContext(
-    lifted[0].replace(/:\s*RegExp\[\]/, '').replace(/:\s*string/g, '').replace(/:\s*boolean/g, '')
-    + '\nout = concerningText;', gateCtx, { filename:'parse-goal-gate.js' });
-  const gate = gateCtx.out;
-
+  /* ═══ 8 · the safety gate, executed on the device ═══ */
+  console.log('\n── 8 · concerningText, now shipped in index.html ──');
+  const gate = S.concerningText;
   const BLOCK = [
     'I think I might have anorexia and want to lose weight',
     'I want to stop eating completely for a week',
@@ -425,9 +360,7 @@ const reply = (status, body) => async () => ({
     'I am disgusted by my body',
   ];
   const ALLOW = [
-    'Lose about 15 lb, 4 days a week, dumbbells at home',
-    "Build muscle, gym access, 5 days, I've lifted for a couple years",
-    'Get my cardio back, 3 days, bad knees so nothing high-impact',
+    ...S.INTAKE_EXAMPLES,
     'I eat around 1800 calories a day and want to keep building',
     'I want to lose my body fat, currently around 28%',
     'I hate my body fat percentage and want it lower',
@@ -443,7 +376,14 @@ const reply = (status, body) => async () => ({
   ok('a normal stated intake is not', !gate('eating 2200 calories a day'));
   ok('the threshold is exclusive at 1000', !gate('eating 1000 calories a day'));
   ok('the gate never throws on odd input',
-     [ '', '   ', '???', ' ', 'x'.repeat(500) ].every(t => typeof gate(t) === 'boolean'));
+     ['', '   ', '???', ' ', 'x'.repeat(500), null, undefined, 42, {}]
+       .every(t => typeof gate(t) === 'boolean'));
+  const blocked = BLOCK.map(t => S.parseGoalText(t));
+  ok('every crisis phrasing short-circuits parseGoalText — no parse, no draft',
+     blocked.every(r => r.blocked === true && r.message === S.SUPPORT_MESSAGE && !('parsed' in r)));
+  ok('…even when it also contains a clear goal, days and equipment',
+     S.parseGoalText('I want to starve myself to lose weight, 5 days a week at the gym').blocked === true);
+  ok('no network call was attempted by the gate either', netCalls === 0);
 
   /* ═══ 9 · a stated rate is answered, never obeyed ═══ */
   console.log('\n── 9 · rate and deadline pressure ──');
@@ -474,9 +414,9 @@ const reply = (status, body) => async () => ({
   ok('a non-string cannot crash the detector',
      [null, undefined, 42, {}].every(t => S.ratePressure(t) === false));
 
-  S.state.intake.parsed = S.sanitizeParsed(clone(GOOD));
-  S.state.draft = S.draftFromParsed(S.state.intake.parsed);
   S.state.intake.text = 'lose 30 lb in a month, 4 days a week, dumbbells';
+  S.state.intake.parsed = S.parseGoalText(S.state.intake.text).parsed;
+  S.state.draft = S.draftFromParsed(S.state.intake.parsed);
   h = S.pageConfirm();
   ok('the confirm screen names the pace the plan does target', /About the pace/.test(h));
   ok('…says the calories do not move to hit a date', /do not move to hit a date/.test(h));
@@ -489,21 +429,18 @@ const reply = (status, body) => async () => ({
 
   S.state.draft.goal = null;
   ok('with no goal chosen yet the note still appears, without a pace claim',
-     /About the pace/.test(S.pageConfirm())
-     && !S.pageConfirm().includes(S.PACE_LINE.lose));
+     /About the pace/.test(S.pageConfirm()) && !S.pageConfirm().includes(S.PACE_LINE.lose));
   S.state.draft.goal = 'lose';
 
   S.state.intake.text = 'Lose about 15 lb, 4 days a week, dumbbells at home';
   ok('an ordinary description gets no pace lecture', !/About the pace/.test(S.pageConfirm()));
 
   ok('a rate claim changes nothing about the arithmetic',
-     fromText({ ...clone(GOOD), unparsed:['wants to lose 30 lb in a month'] }).kcal
-       === fromText({ ...clone(GOOD), unparsed:[] }).kcal
-     && !/ratePressure|PACE_LINE|unparsed/.test(
+     !/ratePressure|PACE_LINE|unparsed|parseGoalText/.test(
           src.slice(src.indexOf('function computePlan()'), src.indexOf('const COACH'))));
 
-  /* ═══ 10 · the two safety strings the spec freezes ═══ */
-  console.log('\n── 10 · the existing warning and disclaimer are unchanged ──');
+  /* ═══ 10 · the strings the spec freezes ═══ */
+  console.log('\n── 10 · frozen safety strings, verbatim ──');
   ok('the >1% bodyweight/week warning is present verbatim',
      src.includes('faster than the 0.5–1% usually recommended. Eating a little more is reasonable here; the target will not go lower on its own.'));
   ok('…and still fires only for a fat-loss goal above 1%',
@@ -515,11 +452,33 @@ const reply = (status, body) => async () => ({
   ];
   DISCLAIMERS.forEach((d, i) =>
     ok(`disclaimer ${i + 1} of ${DISCLAIMERS.length} is present verbatim`, src.includes(d)));
-  ok('the new intake note adds to them rather than replacing one',
+  ok('the intake note adds to them rather than replacing one',
      src.includes('This is exercise selection, not medical advice'));
   ok('the 1300 kcal floor is still the only floor, in both target paths',
-     (src.match(/Math\.max\((?:kcal, )?1300/g) || []).length >= 1
-     && src.includes('Math.max(1300,'));
+     src.includes('Math.max(kcal, 1300)') && src.includes('Math.max(1300,'));
+
+  /* Moved from the server to the device, with the spec's instruction that the
+     wording must not change — so it is locked here in full, character for
+     character, rather than by spot-checking a helpline. */
+  const FROZEN_SUPPORT =
+    'Some of what you wrote sounds like it might be about more than training, ' +
+    'so this app is going to step back rather than hand you a number. That is ' +
+    'not a judgement, and nothing is wrong with you for it.\n\n' +
+    'If you want to talk to someone, findahelpline.com lists free, confidential ' +
+    'services in most countries. In the US you can call or text 988. For eating ' +
+    'concerns specifically, NEDA is at 1-800-931-2237 and Beat (UK) is at ' +
+    '0808 801 0677.\n\n' +
+    'The questionnaire is still here whenever you want it.';
+  ok('SUPPORT_MESSAGE matches the frozen wording character for character',
+     S.SUPPORT_MESSAGE === FROZEN_SUPPORT,
+     `lengths ${S.SUPPORT_MESSAGE.length} vs ${FROZEN_SUPPORT.length}`);
+  ok('…and exists exactly once in the source, so there is no second copy to drift',
+     (src.match(/const SUPPORT_MESSAGE =/g) || []).length === 1);
+  ok('the gate still has its six crisis patterns', S.CONCERN_PATTERNS.length === 6,
+     String(S.CONCERN_PATTERNS.length));
+  ok('the low-intake threshold is still 1000 kcal', S.VERY_LOW_KCAL === 1000);
+  ok('the unusable fallback wording is unchanged',
+     S.INTAKE_FALLBACK.unusable === "I couldn't pull anything usable out of that. These questions will get there.");
 
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail) process.exit(1);

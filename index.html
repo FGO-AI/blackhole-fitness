@@ -2277,7 +2277,6 @@ function runAction(el, page){
         refresh(); return;
       }
       if (a.act === 'intakeGo') {
-        if (state.intake.busy) return;
         const box = current.querySelector('#f-intake');
         const text = ((box && box.value) || '').trim();
         state.intake.text = text.slice(0, MAX_INTAKE);
@@ -2285,23 +2284,29 @@ function runAction(el, page){
           state.intake.error = 'Write a line or two first — or pick one of the examples below.';
           refresh(); return;
         }
-        state.intake.error = ''; state.intake.busy = true; refresh();
-        parseGoalText(state.intake.text).then(res => {
-          state.intake.busy = false;
-          if (res.blocked){
-            state.intake.parsed = null;
-            nav('A moment', () => pageSupport(res.message)); return;
-          }
-          if (res.fail){ intakeFallback(res.fail); return; }
-          state.intake.parsed = res.parsed;
-          state.draft = draftFromParsed(res.parsed);
-          nav('Check this', pageConfirm);
-        });
+        state.intake.error = '';
+        /* on the device and synchronous: the safety gate runs first inside
+           parseGoalText, so a blocked description never reaches a draft */
+        const res = parseGoalText(state.intake.text);
+        if (res.blocked){
+          state.intake.parsed = null;
+          nav('A moment', () => pageSupport(res.message)); return;
+        }
+        if (res.fail){ intakeFallback(res.fail); return; }
+        state.intake.parsed = res.parsed;
+        state.draft = draftFromParsed(res.parsed);
+        nav('Check this', pageConfirm);
         return;
       }
       if (a.act === 'pickField'){
         const f = a.f, v = f === 'days' ? +a.v : a.v;
         state.draft[f] = (state.draft[f] === v) ? null : v;
+        /* equipDetail outranks the level in availableEquip, so a level changed
+           here was silently ignored whenever kit had been named: pick "Full
+           gym" over a parsed "dumbbells at home" and the week stayed
+           dumbbells-only. Changing the level clears the refinement it no
+           longer describes; the kit chips stay editable below. */
+        if (f === 'equip') state.draft.equipDetail = [];
         /* a weekday list that no longer matches the count is not an answer */
         if (f === 'days'){
           const td = state.draft.trainingDays;
@@ -2857,9 +2862,7 @@ function pageMenu(){
     { t:"Workout Library", d:"Every session, organized by what it does for you", route:"workouts" },
     { t:"Activity Log",    d:"Everything you've burned so far", route:"log" },
   ] : [
-    { t:"Goal Analysis",   d:state.session
-        ? "Describe what you want in your own words — or answer seven quick questions"
-        : "Seven quick questions — get calories, macros and a weekly schedule built for you", route:"goals" },
+    { t:"Goal Analysis",   d:"Describe what you want in your own words — or answer seven quick questions", route:"goals" },
     { t:"Calorie Tracker", d:"Log fuel against your daily target", route:"calories" },
     { t:"Nutrition",       d:"How your intake and weight are actually trending", route:"nutrition" },
     { t:"Workout Library", d:"Every session, organized by what it does for you", route:"workouts" },
@@ -2887,15 +2890,14 @@ function pageMenu(){
 
 /* ================= FREE-TEXT INTAKE =================
    A different way to ANSWER the analysis, not a different way to build the
-   plan. The Edge Function turns a sentence into the same draft fields the tap
-   wizard fills in; computePlan() is then called on that draft by exactly the
-   same commit path. Nothing here computes a target, a macro or a session.
+   plan. The parser below turns a sentence into the same draft fields the tap
+   wizard fills in, on the device; computePlan() is then called on that draft
+   by exactly the same commit path. Nothing here computes a target, a macro
+   or a session, and nothing here touches the network.
 
-   The tap wizard stays reachable from every failure and from a link on the
-   first screen — it is the guaranteed path, and this is the enhancement. */
+   The tap wizard stays reachable from the first screen and from the one way
+   this can fail — it is the guaranteed path, and this is the enhancement. */
 const MAX_INTAKE = 500;
-const PARSE_URL = SUPABASE_URL + '/functions/v1/parse-goal';
-const PARSE_TIMEOUT_MS = 20000;
 /* Below this, a parsed value is shown as unanswered rather than pre-selected.
    The cost of a wrong pre-selection is a silently wrong plan; the cost of an
    extra tap is a tap. */
@@ -2907,23 +2909,54 @@ const INTAKE_EXAMPLES = [
   'Get my cardio back, 3 days, bad knees so nothing high-impact',
 ];
 
-/* Why each failure sends someone to the questions, in their words. Every one
-   of these ends in the working wizard — there is no dead end and no spinner
-   that never resolves. */
+/* The only way the free-text path can fail now that it runs on the device:
+   the sentence held nothing this parser recognises. There is no network call,
+   so there is nothing to be offline from, rate limited by, or timed out on. */
 const INTAKE_FALLBACK = {
-  auth:     'The written version needs you signed in. These questions work either way.',
-  offline:  "You're offline, so the written version can't run. These questions work without a connection.",
-  rate:     "That's as many written descriptions as this account can send in an hour. These questions have no limit.",
-  timeout:  'The written version took too long to answer. These questions are quicker anyway.',
-  down:     "The written version isn't reachable right now. Nothing is lost — these questions do the same job.",
   unusable: "I couldn't pull anything usable out of that. These questions will get there.",
 };
+
+/* ---- the safety gate ----
+   Runs before anything is parsed or planned. The wording below is fixed in
+   code and is never assembled, generated or varied; pageSupport only frames
+   it. It used to run on a server, which meant it only protected people who
+   were online and signed in — on the device it protects everyone, always. */
+const SUPPORT_MESSAGE =
+  "Some of what you wrote sounds like it might be about more than training, " +
+  "so this app is going to step back rather than hand you a number. That is " +
+  "not a judgement, and nothing is wrong with you for it.\n\n" +
+  "If you want to talk to someone, findahelpline.com lists free, confidential " +
+  "services in most countries. In the US you can call or text 988. For eating " +
+  "concerns specifically, NEDA is at 1-800-931-2237 and Beat (UK) is at " +
+  "0808 801 0677.\n\n" +
+  "The questionnaire is still here whenever you want it.";
+
+const CONCERN_PATTERNS = [
+  /\b(anorexi|bulimi|orthorexi)/i,
+  /\b(purge|purging|binge and purge|make myself (throw up|sick)|self[- ]induced vomit)/i,
+  /\b(starv(e|ing) myself|stop eating (completely|altogether)|not eat(ing)? at all)/i,
+  /* "my body(?! fat)" so that "I hate my body fat percentage" — a body
+     composition statement — is not treated as a crisis signal, while
+     "punish myself" and "hate myself" still are */
+  /\b(hate|disgusted by|punish) (my body(?!\s*fat)|myself|my self)\b/i,
+  /\b(kill myself|end (it|my life)|suicid|self[- ]harm|hurt myself|cut myself)\b/i,
+  /\b(don'?t want to (be here|live|exist))\b/i,
+];
+/* A stated intake is a rate claim, not a crisis signal on its own — only a
+   very low one counts, so the threshold is a number rather than a pattern. */
+const VERY_LOW_KCAL = 1000;
+function concerningText(text){
+  if (typeof text !== 'string') return false;
+  if (CONCERN_PATTERNS.some(re => re.test(text))) return true;
+  const m = text.match(/(\d{3,4})\s*(?:cal|calorie|kcal)s?\s*(?:a|per)\s*day/i);
+  return !!m && Number(m[1]) < VERY_LOW_KCAL;
+}
 
 /* A stated rate or deadline never touches the math — GOAL_TUNING's bounded
    adjustment and the 1,300 kcal floor stay the only levers. What it earns is
    a plain sentence saying so, because silently dropping a deadline someone
    typed is worse than telling them it was ignored. Read from the user's own
-   words, so the model is not consulted and cannot suppress it. */
+   words, deterministically. */
 const RATE_WEIGHT   = /\b\d+\s*(lbs?|pounds?|kgs?|kilos?|kilograms?|stones?)\b/i;
 /* `may` is safe in the month list: \b after it means 'maybe' cannot match */
 const RATE_DEADLINE = /\b(in|within)\s+(a|one|\d+)\s*(day|week|month)s?\b|\bby\s+(next\s+)?(january|february|march|april|may|june|july|august|september|october|november|december|summer|christmas|new year|the wedding|my wedding)\b/i;
@@ -2944,8 +2977,347 @@ const PACE_LINE = {
   maintain: 'weight holding steady while training improves body composition',
 };
 
-/* The Edge Function validates its own output, but the client decides what
-   reaches state, and every one of these vocabularies already lives here.
+/* ================= THE PARSER =================
+   Closed-vocabulary extraction, entirely on the device. No network call, no
+   key, no per-use cost — which is the point: the app is free and ad-funded,
+   so a cost that scales with adoption is the wrong shape. The confirmation
+   screen was always mandatory, so a parser that fills most fields correctly
+   and admits the rest is worth nearly as much as one that guesses fluently.
+
+   Every extractor derives its confidence from HOW the match was made rather
+   than assigning one after the fact: an unambiguous multi-word phrase scores
+   high, a single weak token scores just above the line, and a tie, a conflict
+   or a miss scores low or zero so the confirm screen asks. Nothing inflates. */
+
+/* lower-cased, punctuation flattened, apostrophes kept only inside words, and
+   space-delimited at both ends so every phrase lookup is a whole-word lookup */
+function normText(t){
+  const s = String(t == null ? '' : t).toLowerCase()
+    .replace(/[‘’ʼ]/g, "'")
+    .replace(/[^a-z0-9'+ -]+/g, ' ')
+    .replace(/([^a-z])'/g, '$1 ').replace(/'([^a-z])/g, ' $1').replace(/^'|'$/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+  return ' ' + s + ' ';
+}
+
+const hasPhrase = (hay, p) => hay.indexOf(' ' + p + ' ') >= 0;
+
+/* Longest phrase first, each hit blanked out of the working copy, so "half
+   marathon" is not also counted as "marathon" and "home gym" is not also
+   counted as "gym". Returns the score, the phrases hit and what is left. */
+function consume(hay, signals){
+  let rest = hay, score = 0;
+  const hits = [];
+  for (const sig of [...signals].sort((a, b) => b[0].length - a[0].length)){
+    const phrase = sig[0], at = rest.indexOf(' ' + phrase + ' ');
+    if (at < 0) continue;
+    rest = rest.slice(0, at + 1) + ' '.repeat(phrase.length) + rest.slice(at + 1 + phrase.length);
+    score += sig[1];
+    hits.push(sig);
+  }
+  return { score, hits, rest };
+}
+
+/* ---- goal ---- */
+const GOAL_SIGNALS = {
+  lose: [['lose weight',3],['weight loss',3],['fat loss',3],['lose fat',3],['burn fat',3],
+         ['lean out',3],['weight off',3],['slim down',3],['drop weight',3],['lose some weight',3],
+         ['shed',2],['lose',2],['slim',2],['leaner',2],['tone down',2],['cut',1],['drop',1],['trim',1]],
+  gain: [['build muscle',3],['put on muscle',3],['gain muscle',3],['bulk up',3],['get stronger',3],
+         ['add size',3],['hypertrophy',3],['tone up',2],['muscle',2],['bulk',2],['strength',2],
+         ['stronger',2],['build',1],['gain',1],['size',1],['mass',1]],
+  endure: [['half marathon',3],['marathon',3],['endurance',3],['stamina',3],['triathlon',3],
+           ['get my wind back',3],['10k',3],['5k',3],['cardio',2],['running',2],['cycling',2],
+           ['swimming',2],['aerobic',2],['my wind',2],['out of breath',2],['run',1],['ride',1],['swim',1]],
+  maintain: [['stay fit',3],['general fitness',3],['maintain weight',3],['keep fit',3],
+             ['stay healthy',3],['stay in shape',3],['keep in shape',3],['maintain',3],
+             ['get in shape',2],['get fit',2],['upkeep',2],['healthy',1]],
+};
+
+function parseGoal(hay){
+  const scored = Object.keys(GOAL_SIGNALS)
+    .map(id => ({ id, score: consume(hay, GOAL_SIGNALS[id]).score }))
+    .sort((a, b) => b.score - a.score);
+  const top = scored[0], next = scored[1];
+  if (!top.score) return { value:null, confidence:0, tied:[] };
+  /* a tie is not an answer — but it is something the person said, so the
+     tied goals go back to be reported rather than silently dropped */
+  if (top.score === next.score)
+    return { value:null, confidence:0, tied: scored.filter(x => x.score === top.score).map(x => x.id) };
+  const margin = top.score - next.score;
+  const confidence = top.score >= 3 && margin >= 2 ? 0.95
+                   : top.score >= 3               ? 0.8
+                   : top.score >= 2 && margin >= 2 ? 0.75
+                   : 0.62;
+  return { value: top.id, confidence, tied:[] };
+}
+
+/* ---- days ---- */
+const NUM_WORD = { one:1, two:2, three:3, four:4, five:5, six:6, seven:7 };
+const DAYS_RE = /(?:^| )(\d{1,2}|one|two|three|four|five|six|seven)\s*(?:-|\s)?\s*(?:x|times?|days?|sessions?)\b/;
+
+/* In range: taken as said. Out of range: clamped, pre-selected, and said out
+   loud — a silently moved number is the one thing worse than asking again. */
+function settleDays(raw, confidence, verb){
+  if (raw == null || !Number.isFinite(raw) || raw < 1 || raw > 14) return { value:null, confidence:0, notes:[] };
+  if (raw >= 3 && raw <= 6) return { value:raw, confidence, notes:[] };
+  const value = raw < 3 ? 3 : 6;
+  return { value, confidence:0.65,
+           notes:[`you ${verb} ${raw} ${raw === 1 ? 'day' : 'days'} a week — plans here run ${value === 3 ? 'from 3' : 'up to 6'}, so this is set to ${value}`] };
+}
+
+function parseDays(hay){
+  if (/ twice (a|per|each) week | twice weekly /.test(hay)) return settleDays(2, 0.9, 'said');
+  if (/ once (a|per|each) week | once weekly /.test(hay))   return settleDays(1, 0.9, 'said');
+  const m = hay.match(DAYS_RE);
+  if (!m) return { value:null, confidence:0, notes:[] };
+  return settleDays(NUM_WORD[m[1]] != null ? NUM_WORD[m[1]] : parseInt(m[1], 10), 0.9, 'said');
+}
+
+/* ---- which weekdays ---- */
+const WEEKDAY_TOKENS = {
+  monday:0, mondays:0, mon:0, tuesday:1, tuesdays:1, tues:1, tue:1,
+  wednesday:2, wednesdays:2, weds:2, wed:2, thursday:3, thursdays:3, thurs:3, thur:3, thu:3,
+  friday:4, fridays:4, fri:4, saturday:5, saturdays:5, sat:5, sunday:6, sundays:6, sun:6,
+};
+/* "sat" and "sun" are ordinary English words. They only count as weekdays
+   when they sit next to another weekday in a list — so "sat and sun" is a
+   schedule and "I sat in the sun" is not. */
+const AMBIGUOUS_DAYS = { sat:1, sun:1 };
+
+function parseWeekdays(hay){
+  if (hasPhrase(hay, 'every other day')) return [0, 2, 4];
+  const toks = hay.trim().split(' ').filter(t => t && t !== 'and' && t !== 'or' && t !== 'n');
+  const found = new Set();
+  toks.forEach((t, i) => {
+    if (!(t in WEEKDAY_TOKENS)) return;
+    if (t in AMBIGUOUS_DAYS && !(toks[i - 1] in WEEKDAY_TOKENS) && !(toks[i + 1] in WEEKDAY_TOKENS)) return;
+    found.add(WEEKDAY_TOKENS[t]);
+  });
+  if (found.size) return [...found].sort((a, b) => a - b);
+  /* plural, or "on/at the weekend" — "all weekend" is a time, not a schedule */
+  if (/ weekends | (on|at) the weekend /.test(hay)) return [5, 6];
+  if (hasPhrase(hay, 'weekdays')) return [0, 1, 2, 3, 4];
+  return null;
+}
+
+/* ---- equipment ----
+   Rows are [phrases, level or null, detail values, weight]. A null level names
+   kit without settling how much of a gym surrounds it: a pool is a pool, and
+   a treadmill at home is not a gym. Negations are consumed first so that "no
+   pool" can never add a pool. */
+const EQUIP_ROWS = [
+  [['no equipment','no gear','no kit','no weights','bodyweight','body weight','body-weight',
+    'just my body','calisthenics','have nothing','got nothing','nothing at all','with nothing',
+    "don't have any equipment",'dont have any equipment','do not have any equipment',
+    'without equipment','no gym'], 'none', ['none'], 3],
+  [['full gym','commercial gym','planet fitness','gym membership','gym access','the gym',
+    'at the gym','a gym','gym'], 'gym', [], 3],
+  [['dumbbells','dumbbell'], 'basic', ['dumbbell'], 3],
+  [['kettlebells','kettlebell'], 'basic', ['kettlebell'], 3],
+  [['resistance bands','resistance band','bands'], 'basic', ['bands'], 3],
+  [['barbells','barbell','squat rack','power rack','bench press'], 'gym', ['barbell'], 3],
+  [['weight machines','cable machine','machines','cables'], 'gym', ['machine'], 2],
+  [['home gym','garage gym'], 'basic', [], 2],
+  [['rowing machine','treadmill','elliptical','rower','stair climber','stairmaster'], null, ['cardio-machine'], 2],
+  [['swimming pool','lap pool','pool'], null, ['pool'], 3],
+  [['stationary bike','exercise bike','spin bike','road bike','bicycle','peloton','bike'], null, ['bike'], 2],
+  [['battle ropes','jump rope','skipping rope','sled'], null, ['specialty'], 2],
+  [['no pool','no bike','no dumbbells','no dumbbell','no barbell','no kettlebell','no bands'], null, [], 0],
+];
+
+function parseEquip(hay){
+  const signals = [];
+  EQUIP_ROWS.forEach((row, r) => row[0].forEach(p => signals.push([p, row[3], r])));
+  const { hits } = consume(hay, signals);
+  const levels = {}, detail = new Set();
+  for (const [, , r] of hits){
+    const [, level, details, weight] = EQUIP_ROWS[r];
+    details.forEach(d => detail.add(d));
+    if (level) levels[level] = Math.max(levels[level] || 0, weight);
+  }
+  const named = Object.keys(levels);
+  if (!named.length){
+    /* bare "home" says where, not what — ambiguous, so nothing is assumed */
+    return { value:null, confidence:0, detail:[...detail].filter(d => d !== 'none') };
+  }
+  /* the widest level named wins: a gym has dumbbells in it, and "dumbbells
+     but no gym" still means there is kit */
+  const best = levels.gym ? 'gym' : levels.basic ? 'basic' : 'none';
+  if (best !== 'none') detail.delete('none');
+  const confidence = named.length > 1 ? 0.62            /* conflicting signals: pre-fill, but only just */
+                   : levels[best] >= 3 ? 0.9 : 0.62;
+  return { value:best, confidence, detail:[...detail] };
+}
+
+/* ---- experience ---- */
+const EXP_SIGNALS = {
+  beginner: [['never trained',3],['never lifted',3],['never worked out',3],['never been to a gym',3],
+             ['first time',3],['starting out',3],['just started',3],['new to this',3],['new to',3],
+             ['no experience',3],['complete beginner',3],['getting back',3],['coming back',3],
+             ['beginner',3],['novice',3]],
+  intermediate: [['some experience',3],['on and off',3],['for a while',3],['a couple of years',3],
+                 ['a couple years',3],['couple of years',3],['couple years',3],['intermediate',3],
+                 ['a year',2],['one year',2]],
+  advanced: [['been lifting for years',3],['many years',3],['several years',3],['competed',3],
+             ['competitive',3],['experienced',3],['advanced',3],['seasoned',3],['years of',2]],
+};
+/* A bare number of years or months only counts as experience next to a
+   training word — "lose 30 lb in 2 years" is not a training history. */
+const EXP_LEAD = '\\b(?:lifting|lifted|training|trained|been|doing|at it|gym|experience|working out|worked out)\\b[^.]{0,24}?\\b';
+const YEARS_RE  = new RegExp(EXP_LEAD + '(\\d{1,2})\\s*\\+?\\s*(?:years?|yrs?)\\b');
+const MONTHS_RE = new RegExp(EXP_LEAD + '(\\d{1,2})\\s*(?:months?)\\b');
+
+function parseExp(hay){
+  const ym = hay.match(YEARS_RE);
+  if (ym){
+    const n = parseInt(ym[1], 10);
+    return { value: n >= 3 ? 'advanced' : n >= 1 ? 'intermediate' : 'beginner', confidence:0.9 };
+  }
+  if (MONTHS_RE.test(hay)) return { value:'beginner', confidence:0.8 };
+  const scored = Object.keys(EXP_SIGNALS)
+    .map(id => ({ id, score: consume(hay, EXP_SIGNALS[id]).score }))
+    .sort((a, b) => b.score - a.score);
+  const top = scored[0], next = scored[1];
+  if (!top.score || top.score === next.score) return { value:null, confidence:0 };
+  return { value:top.id, confidence: top.score >= 3 ? 0.85 : 0.62 };
+}
+
+/* ---- things to work around ----
+   Injury and preference language mapped onto the five values Phase 0 already
+   tags the library with. Nothing here invents a sixth. There is deliberately
+   no bare "back": "get my cardio back" must not read as a spinal injury. */
+const AVOID_ROWS = [
+  [['bad knees','bad knee','knees','knee','shin splints','shins','ankles','ankle','high impact',
+    'high-impact','low impact','low-impact','no impact','plantar','joints','joint pain'], ['running','jumping']],
+  [['no running',"can't run",'cant run','cannot run','hate running','no jogging'], ['running']],
+  [['no jumping','no plyo','no plyometrics','no skipping'], ['jumping']],
+  [['rotator cuff','no overhead','shoulders','shoulder'], ['overhead']],
+  [['bad back','back injury','lower back','herniated disc','slipped disc','bulging disc','disc injury',
+    'sciatica','spine','spinal','no deadlifts','no squats'], ['heavy-spinal']],
+  [["can't swim",'cant swim','cannot swim','no swimming','non swimmer','non-swimmer','no pool'], ['swimming']],
+];
+
+function parseAvoid(hay){
+  const traits = new Set(), phrases = [];
+  for (const [list, ts] of AVOID_ROWS){
+    const hit = list.filter(p => hasPhrase(hay, p));
+    if (!hit.length) continue;
+    phrases.push(...hit);
+    ts.forEach(t => traits.add(t));
+  }
+  return { traits:[...traits], phrases };
+}
+
+/* what someone says they will NOT do must not vote for what they want to do:
+   "can't swim" is not an endurance goal */
+function withoutPhrases(hay, phrases){
+  let out = hay;
+  for (const p of phrases) out = out.split(' ' + p + ' ').join(' ' + ' '.repeat(p.length) + ' ');
+  return out;
+}
+
+/* ---- what was seen and not used ----
+   Specific detectors rather than a leftover-words heuristic, so every line is
+   something real. A rule may decline (return null) when context shows the
+   match is not what it looks like. */
+const UNPARSED_RULES = [
+  [/\b(\d+)\s*(lbs?|pounds?|kgs?|kilos?|kilograms?|stones?)\b/i,
+   m => `a target of ${m[1]} ${m[2]} — the plan works from your measurements, not a goal weight`],
+  [/\b(half marathon|marathon|triathlon|10k|5k|parkrun|race|competition)\b/i,
+   m => `an event you're training for: ${m[1]}`],
+  [/\b(?:by|before|in)\s+(next\s+)?(january|february|march|april|may|june|july|august|september|october|november|december|summer|spring|autumn|winter|christmas)\b/i,
+   m => `a date you mentioned: ${m[2]}`],
+  [/\b(?:in|within)\s+(a|one|\d+)\s*(week|month|day)s?\b/i,
+   m => /time|day|session/i.test(m.input.slice(Math.max(0, m.index - 12), m.index)) ? null
+      : `a deadline: ${m[1]} ${m[2]}${m[1] === 'a' || m[1] === 'one' ? '' : 's'}`],
+  [/\b(abs|six pack|belly|arms|chest|glutes|booty|calves|love handles)\b/i,
+   m => `a body part you named: ${m[1]} — sessions here train the whole body`],
+  [/\b(asthma|diabet\w*|pregnan\w*|surgery|physio\w*|chemo\w*|heart condition|blood pressure)\b/i,
+   m => `a medical condition: ${m[1]} — this app only filters exercises, so please check with a professional`],
+  [/\b(\d{3,4})\s*(?:cal|calorie|kcal)s?\b/i,
+   m => `a calorie figure of ${m[1]} — your target is computed from your own body instead`],
+];
+
+function collectUnparsed(original){
+  const out = [];
+  for (const [re, make] of UNPARSED_RULES){
+    const m = original.match(re);
+    const line = m ? make(m) : null;
+    if (line) out.push(line);
+  }
+  return out;
+}
+
+const GOAL_SUMMARY  = { lose:'Lose weight', gain:'Build muscle', endure:'Build endurance', maintain:'Stay fit' };
+const EQUIP_SUMMARY = { none:'using nothing but bodyweight', basic:'with dumbbells and small kit', gym:'at a full gym' };
+
+/* Assembled from what was actually extracted, never written. It cannot claim
+   something the parser did not find: there is no fragment to say it with
+   unless a field produced one. */
+function buildSummary(f){
+  const bits = [];
+  if (f.goal) bits.push(GOAL_SUMMARY[f.goal]);
+  if (f.days) bits.push(`${f.days} days a week`);
+  if (f.equip) bits.push(EQUIP_SUMMARY[f.equip]);
+  if (f.avoid.length) bits.push('avoiding ' + f.avoid.map(a => (AVOID_LABEL[a] || a).toLowerCase()).join(' and '));
+  if (!bits.length) return '';
+  return bits.join(', ').replace(/^./, c => c.toUpperCase()) + '.';
+}
+
+/* Returns {parsed} | {blocked, message} | {fail:'unusable'}. Synchronous and
+   offline: the same three cases the caller always handled, minus every case
+   that only existed because there used to be a server. */
+function parseGoalText(text){
+  const raw = String(text == null ? '' : text).slice(0, MAX_INTAKE);
+  if (concerningText(raw)) return { blocked:true, message: SUPPORT_MESSAGE };
+
+  const hay   = normText(raw);
+  const avoid = parseAvoid(hay);
+  const goal  = parseGoal(withoutPhrases(hay, avoid.phrases));
+  const days  = parseDays(hay);
+  const equip = parseEquip(hay);
+  const exp   = parseExp(hay);
+
+  let dayCount = days.value, dayConf = days.confidence;
+  const notes = [];
+  if (goal.tied.length)
+    notes.push(`you named more than one goal — ${goal.tied.map(id => GOAL_SUMMARY[id].toLowerCase()).join(' and ')} — so pick the one that matters most right now`);
+  notes.push(...days.notes);
+
+  /* Named weekdays supply the count when none was given, settled exactly like
+     a stated count; they are kept as a schedule only when the two agree,
+     otherwise the step-6 picker asks. */
+  let trainingDays = parseWeekdays(hay);
+  if (trainingDays && dayCount == null){
+    const settled = settleDays(trainingDays.length, 0.85, 'named');
+    dayCount = settled.value; dayConf = settled.confidence; notes.push(...settled.notes);
+  }
+  if (trainingDays && trainingDays.length !== dayCount) trainingDays = null;
+
+  const fields = {
+    goal: goal.value, days: dayCount, equip: equip.value, exp: exp.value,
+    equipDetail: equip.detail, avoid: avoid.traits, trainingDays,
+    confidence: { goal:goal.confidence, days:dayConf, equip:equip.confidence, exp:exp.confidence },
+    unparsed: [...notes, ...collectUnparsed(raw)].slice(0, 5),
+    summary: '',
+  };
+  fields.summary = buildSummary(fields);
+
+  /* Nothing recognised at all — not a field, not even something worth
+     reporting back — sends the user to the questions with a sentence why. */
+  if (!fields.goal && !fields.days && !fields.equip && !fields.exp && !fields.avoid.length
+      && !fields.equipDetail.length && !fields.unparsed.length) return { fail:'unusable' };
+
+  /* One gate on the vocabulary, as before: the parser is the only producer,
+     but the check stays so a future edit to a signal table cannot widen it. */
+  const parsed = sanitizeParsed(fields);
+  return parsed ? { parsed } : { fail:'unusable' };
+}
+
+/* The one gate on the vocabulary. The parser above is the only producer,
+   but it still runs everything through here, so a future edit to a signal
+   table cannot put a value into state that the plan does not understand.
    Anything outside them becomes null, which the confirm screen renders as a
    question rather than an assumption. */
 function sanitizeParsed(p){
@@ -2973,51 +3345,6 @@ function sanitizeParsed(p){
       : [],
     summary: typeof p.summary === 'string' ? p.summary.trim().slice(0, 240) : '',
   };
-}
-
-/* Returns {parsed} | {blocked, message} | {fail:<key of INTAKE_FALLBACK>}.
-   Never throws, and never returns a half state — the caller has exactly three
-   cases to handle. */
-async function parseGoalText(text){
-  if (!supa || !state.session) return { fail:'auth' };
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return { fail:'offline' };
-
-  let token = '';
-  try {
-    const { data } = await supa.auth.getSession();
-    token = (data && data.session && data.session.access_token) || '';
-  } catch (e) { return { fail:'auth' }; }
-  if (!token) return { fail:'auth' };
-
-  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
-  const timer = setTimeout(() => { if (ctl) ctl.abort(); }, PARSE_TIMEOUT_MS);
-  try {
-    const res = await fetch(PARSE_URL, {
-      method: 'POST',
-      /* apikey as well as the bearer token: this is a raw fetch, not a
-         supabase-js call, and supabase-js sends both on every request. The
-         publishable key is already public in this file — see above — so this
-         discloses nothing, and without it a gateway that wants it answers
-         401, which is indistinguishable from being signed out. */
-      headers: { 'Content-Type':'application/json', 'apikey': SUPABASE_ANON_KEY,
-                 'Authorization':'Bearer ' + token },
-      body: JSON.stringify({ text }),
-      signal: ctl ? ctl.signal : undefined,
-    });
-    let body = null;
-    try { body = await res.json(); } catch (e) { body = null; }
-    if (res.status === 429) return { fail:'rate' };
-    if (!res.ok || !body) return { fail:'down' };
-    /* the safety response is fixed server-side; the client only displays it */
-    if (body.blocked) return { blocked:true, message: String(body.message || '') };
-    const parsed = sanitizeParsed(body.parsed);
-    if (!parsed) return { fail:'unusable' };
-    return { parsed };
-  } catch (e) {
-    return { fail: (e && e.name === 'AbortError') ? 'timeout' : 'down' };
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 /* Only fields the parser was confident about are pre-selected. A null or a
@@ -3054,7 +3381,7 @@ function pageDescribe(){
       <div class="field"><label class="fl">In your own words</label>
         <textarea class="inp" id="f-intake" rows="4" maxlength="${MAX_INTAKE}"
           placeholder="e.g. I want to drop some weight, I can train four days a week, and I've got a pair of dumbbells at home.">${escHtml(it.text)}</textarea></div>
-      <div class="mut" style="font-size:12px;margin:-8px 0 12px">Up to ${MAX_INTAKE} characters. Your description is read once to fill in the form — it is not stored.</div>
+      <div class="mut" style="font-size:12px;margin:-8px 0 12px">Up to ${MAX_INTAKE} characters. Your description is read on this device to fill in the form — it is never sent anywhere or stored.</div>
       <div class="err" id="err">${escHtml(it.error)}</div>
       <button class="btn" data-act="intakeGo" ${it.busy ? 'disabled' : ''}>${it.busy ? 'Reading that…' : 'Continue →'}</button>
     </div>
@@ -3169,7 +3496,7 @@ function pageConfirm(){
 }
 
 /* --- the safety response ---
-   The wording is fixed on the server and shown here verbatim; this page only
+   The wording is SUPPORT_MESSAGE, fixed in code and shown here verbatim; this page only
    frames it. No plan, no targets, no numbers of any kind on this screen, and
    the questionnaire stays one tap away rather than being taken off the table. */
 function pageSupport(message){
@@ -4953,7 +5280,7 @@ function bindCoachInputs(page){
 const ROUTES = {
   /* Free text is the default way in; the tap wizard keeps its own route so
      every fallback, and the link on the first screen, can reach it. */
-  goals:    () => nav('Goal Analysis', state.session ? pageDescribe : pageGoals),
+  goals:    () => nav('Goal Analysis', pageDescribe),
   wizard:   () => nav('Goal Analysis', pageGoals),
   plan:     () => { if (coachTick()) saveState(); return state.plan ? nav('Your Plan', pagePlanFull) : nav('Goal Analysis', pageGoals); },
   calories: () => { if (coachTick()) saveState(); nav('Calorie Tracker', pageCalories); },
