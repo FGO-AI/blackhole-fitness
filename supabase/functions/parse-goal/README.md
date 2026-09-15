@@ -16,6 +16,23 @@ not an outage.
 - The Supabase CLI, linked to project `kfoifswvyjppywyeurrq`.
 - An Anthropic API key.
 
+## 0. Install and link the CLI
+
+Skip whatever you already have.
+
+```bash
+npm install -g supabase            # installs the CLI
+supabase --version                 # confirm it is on PATH
+supabase login                     # opens a browser, stores a CLI token
+supabase link --project-ref kfoifswvyjppywyeurrq   # points this repo at the project
+```
+
+Run `link` from the repo root — it reads `supabase/functions/` and writes local
+CLI state to `supabase/.temp`, which `.gitignore` keeps out of the repo.
+
+The project ref is not a secret; it is the subdomain in `SUPABASE_URL` and is
+already in `index.html`.
+
 ## 1. Run the schema
 
 Paste `supabase-schema.sql` into the Supabase SQL Editor and run it. The whole
@@ -47,17 +64,48 @@ as local testing.
 ## 3. Deploy
 
 ```bash
-supabase functions deploy parse-goal
+supabase functions deploy parse-goal      # uploads and starts the function
+supabase functions list                   # confirm parse-goal is ACTIVE
 ```
 
-## 4. Check it end to end
+Then, in a second terminal, tail the logs so you can watch the first real call:
 
-Sign in to the live app, open Goal Analysis, and send one of the example chips.
-You should land on the confirm screen with the fields pre-filled. Then check the
-Supabase function logs for a `200`.
+```bash
+supabase functions logs parse-goal --follow
+```
 
-To exercise the rate limit, send eleven descriptions inside an hour — the
-eleventh should come back `429` and the app should show the wizard saying so.
+## 4. Verify against the deployed function
+
+`verify.sh` runs the whole check list — auth, schema conformance, oversized
+input, prompt injection, the safety path, and CORS — and prints PASS/FAIL per
+item.
+
+```bash
+export BHF_EMAIL='you@example.com'        # a real, confirmed account
+export BHF_PASSWORD='...'                 # not written to disk by the script
+bash supabase/functions/parse-goal/verify.sh
+```
+
+Add `--rate` to also prove the rate limit trips. That deliberately spends the
+whole hourly quota for `BHF_EMAIL`, so it is opt-in and runs last:
+
+```bash
+bash supabase/functions/parse-goal/verify.sh --rate
+```
+
+The script exits non-zero if anything fails. It is not in `/tests` on purpose:
+it makes real, billed calls against a live endpoint, whereas everything in
+`/tests` runs offline. `tests/intake.test.js` covers the rest.
+
+One thing the script cannot prove from outside: that an unauthenticated call
+made no model call. Check the tailing logs — a rejected call should show the
+401 and nothing after it.
+
+## 5. Then the app itself
+
+Sign in on a phone, open Goal Analysis, and send one of the example chips. You
+should reach the confirm screen with fields populated — not the wizard. The
+wizard appearing means the call failed; the logs will say why.
 
 ## Cost
 
