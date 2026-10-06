@@ -912,6 +912,7 @@ const state = {
   /* ---- coaching, durable ---- */
   weighIns:[],                 /* [{date:'YYYY-MM-DD', kg}] one per day, ascending; kg is canonical */
   mealsDate:null,              /* the local calendar day state.meals belongs to; null on legacy blobs */
+  water:0,                     /* ml drunk on mealsDate; rolled over with the diary */
   intakeLog:[],                /* completed days: [{date, kcal, p, c, f, n}] ascending */
   adaptive:{ enabled:true, tdee:null, updatedAt:null, lastChange:null },
   prefs:{ netCalories:false, weighDismissed:null, macros:null },
@@ -927,7 +928,9 @@ const state = {
   foodCat:'All', foodQuery:'', customDraftName:'',
   activeMeal:'Breakfast',      /* which meal we're logging into */
   sheet:null,                  /* food-detail sheet: {food, qty} or null */
-  foodView:'browse',           /* browse | recents | favorites */
+  foodView:'browse',           /* browse | recents | favorites | custom | quick */
+  customEdit:null,             /* name of the custom food the form is editing, or null for a new one */
+  customConfirmDel:null,       /* name of the custom food whose Delete was tapped once */
   /* ---- account sync (all transient, never persisted) ---- */
   session:null,                /* null (guest) or { id, email } once signed in */
   syncStatus:'local',          /* local | syncing | synced | error */
@@ -947,7 +950,7 @@ const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
    and can never throw, so corrupt or missing storage just yields fresh state. */
 const SAVE_KEY = 'bhf.state.v1';
 const DURABLE  = ['goal','profile','plan','done','meals','recents','favorites','customFoods','workoutOverrides',
-                  'weighIns','mealsDate','intakeLog','adaptive','prefs'];
+                  'weighIns','mealsDate','intakeLog','adaptive','prefs','water'];
 const freshMeals = () => ({ Breakfast:[], Lunch:[], Dinner:[], Snack:[] });
 
 function durableSlice(){ const s = {}; for (const k of DURABLE) s[k] = state[k]; return s; }
@@ -1092,7 +1095,11 @@ function repairShapes(){
   };
   state.weighIns  = byDate(state.weighIns,  w => Number.isFinite(w.kg) && w.kg > 20 && w.kg < 400);
   state.intakeLog = byDate(state.intakeLog, e => ['kcal','p','c','f','n'].every(k => Number.isFinite(e[k]) && e[k] >= 0));
+  /* water rides on an archived day's row but is optional; a bad value is
+     dropped on its own rather than costing the day's food totals */
+  for (const e of state.intakeLog) if ('water' in e && !(Number.isFinite(e.water) && e.water >= 0 && e.water <= MAX_WATER_ML)) delete e.water;
   if (!isDay(state.mealsDate)) state.mealsDate = null;
+  state.water = (Number.isFinite(state.water) && state.water >= 0 && state.water <= MAX_WATER_ML) ? Math.round(state.water) : 0;
   const ad = (state.adaptive && typeof state.adaptive === 'object' && !Array.isArray(state.adaptive)) ? state.adaptive : {};
   const lc = ad.lastChange;
   state.adaptive = {
@@ -1229,12 +1236,13 @@ function resetState(){
   state.done = []; state.meals = freshMeals();
   state.recents = []; state.favorites = []; state.customFoods = [];
   state.workoutOverrides = {};
-  state.weighIns = []; state.intakeLog = []; state.mealsDate = null;
+  state.weighIns = []; state.intakeLog = []; state.mealsDate = null; state.water = 0;
   state.adaptive = { enabled:true, tdee:null, updatedAt:null, lastChange:null };
   state.prefs = { netCalories:false, weighDismissed:null, macros:null };
   state.nutPeriod = 'week'; state.macroEditing = false;
   state.draft = {}; state.sheet = null; state.exSheet = null;
   state.foodCat = 'All'; state.foodQuery = ''; state.activeMeal = 'Breakfast'; state.foodView = 'browse';
+  state.customEdit = null; state.customConfirmDel = null;
   state.logPeriod = 'career';
   /* note: session/syncStatus are left intact — "Clear my data" wipes data,
      not your sign-in. */
@@ -2197,7 +2205,7 @@ function readAbout(page){
     if (el) d[k === 'in' ? 'inch' : k] = el.value;
   });
 }
-/* One dispatcher for all 28 actions, factored out of the click binding so the
+/* One dispatcher for every action, factored out of the click binding so the
    keyboard path runs exactly the same code. */
 function runAction(el, page){
       const a = el.dataset;
@@ -2365,7 +2373,11 @@ function runAction(el, page){
          and every later render of the browse view threw. */
       if (a.act === 'setFoodCat'){ state.foodCat = decodeURIComponent(a.cat); state.foodQuery=''; refreshFoodOnly(); }
       if (a.act === 'setMeal')  { state.activeMeal = a.meal; refreshFoodOnly(); }
-      if (a.act === 'setFoodView'){ state.foodView = a.view; state.foodQuery=''; state.customDraftName = ''; refreshFoodOnly(); }
+      if (a.act === 'setFoodView'){
+        state.foodView = a.view; state.foodQuery=''; state.customDraftName = '';
+        state.customEdit = null; state.customConfirmDel = null;
+        refreshFoodOnly();
+      }
       /* carry the failed search term straight into the custom-food form */
       if (a.act === 'addCustomFromSearch'){
         state.customDraftName = state.foodQuery.trim();
@@ -2373,6 +2385,22 @@ function runAction(el, page){
         refreshFoodOnly(); return;
       }
       if (a.act === 'saveCustom'){ saveCustomFromForm(); }
+      if (a.act === 'editCustom'){
+        const name = decodeURIComponent(a.fname);
+        if (state.customFoods.some(x => x.name === name)){
+          state.customEdit = name; state.customConfirmDel = null; state.foodView = 'custom';
+          refreshFoodOnly();
+        }
+      }
+      if (a.act === 'delCustom'){
+        const name = decodeURIComponent(a.fname);
+        /* two taps: the first arms it, the second deletes */
+        if (state.customConfirmDel !== name){ state.customConfirmDel = name; refreshFoodOnly(); }
+        else { deleteCustomFood(name); saveState(); refreshFoodOnly(); }
+      }
+      if (a.act === 'quickAddSave'){ if (quickAddFromForm()){ saveState(); refreshFoodOnly(); } }
+      if (a.act === 'addWater')    { if (addWater(+a.ml)){ saveState(); refreshFoodOnly(); } }
+      if (a.act === 'addWaterCustom'){ if (addWaterFromForm()){ saveState(); refreshFoodOnly(); } }
       if (a.act === 'complete')  {
         const w = findWorkout(a.g, decodeURIComponent(a.wname));
         if (w) {
@@ -4442,6 +4470,85 @@ function toggleFav(f){
 /* Free-text ceiling for a custom food's name and serving. Nothing legitimate
    comes close; it exists so absurd input can't be stored at all. */
 const MAX_FOOD_TEXT = 80;
+/* a typed food label is held to the same gate everywhere: rejected, never truncated */
+function foodTextError(...vals){
+  if (vals.some(v => v.length > MAX_FOOD_TEXT)) return `Name and serving must be ${MAX_FOOD_TEXT} characters or fewer.`;
+  if (vals.some(v => /[<>]/.test(v)))         return 'Name and serving can’t contain < or >.';
+  return '';
+}
+
+/* ---- water ----
+   Stored in ml, canonical like kg is for weight; shown in fl oz to imperial
+   users. One day's total lives in state.water beside the diary it belongs to. */
+const ML_PER_FLOZ  = 29.5735;
+const MAX_WATER_ML = 20000;          /* a day's ceiling — nothing real comes close */
+const MAX_WATER_ADD = 5000;          /* one entry's ceiling */
+const waterTargetMl = () => Math.round(((state.plan && state.plan.waterL) || 2.5) * 1000);
+const fmtWater = ml => useImperial()
+  ? `${Math.round(ml / ML_PER_FLOZ)} fl oz`
+  : `${+(Math.round(ml / 50) * 50 / 1000).toFixed(2)} L`;     /* 0.05 L steps; + drops trailing zeros */
+/* the two quick steps, in the user's own unit */
+const waterSteps = () => useImperial()
+  ? [[Math.round(8 * ML_PER_FLOZ), '8 fl oz'], [Math.round(16 * ML_PER_FLOZ), '16 fl oz']]
+  : [[250, '250 ml'], [500, '500 ml']];
+/* add (or, negative, take back) water on today's diary; never below zero */
+function addWater(ml){
+  if (!Number.isFinite(ml) || ml === 0) return false;
+  coachTick();                       /* past midnight? yesterday's water is archived first */
+  state.water = Math.max(0, Math.min(MAX_WATER_ML, Math.round(state.water + ml)));
+  return true;
+}
+function addWaterFromForm(){
+  const el = current.querySelector('#waterIn'), err = current.querySelector('#waterErr');
+  const v = +((el && el.value) || '');
+  const ml = useImperial() ? v * ML_PER_FLOZ : v;
+  if (!(Number.isFinite(v) && v > 0 && ml <= MAX_WATER_ADD)){
+    if (err) err.textContent = `Enter an amount up to ${useImperial() ? Math.floor(MAX_WATER_ADD / ML_PER_FLOZ) + ' fl oz' : MAX_WATER_ADD + ' ml'}.`;
+    return false;
+  }
+  return addWater(ml);
+}
+
+/* ---- quick add: calories (and optionally macros) with no food behind them ---- */
+function quickAddFromForm(){
+  const g = id => ((current.querySelector('#'+id)||{}).value || '').trim();
+  const fail = msg => { const e = current.querySelector('#qaErr'); if (e) e.textContent = msg; return false; };
+  const label = g('qaLabel');
+  const kcal = +g('qaKcal');
+  if (!(Number.isFinite(kcal) && kcal >= 1 && kcal <= 5000)) return fail('Enter calories between 1 and 5000.');
+  const mac = ['qaP','qaC','qaF'].map(id => g(id) === '' ? 0 : +g(id));
+  if (!mac.every(m => Number.isFinite(m) && m >= 0 && m <= 1500)) return fail('Macros must be between 0 and 1500 g.');
+  const textErr = foodTextError(label);
+  if (textErr) return fail(textErr.replace('Name and serving', 'The label'));
+  coachTick();                       /* log into today, not a diary that rolled */
+  const food = { name: label || 'Quick add', srv:'quick add', calories: Math.round(kcal),
+    p: Math.round(mac[0]), c: Math.round(mac[1]), f: Math.round(mac[2]), cat:'Quick add', quick:true };
+  state.meals[state.activeMeal].push({ food, qty:1 });   /* not a food to find again, so no recents */
+  state.foodView = 'browse';
+  return true;
+}
+
+/* ---- managing custom foods ----
+   Logged diary entries hold their own copy of the food, so editing or deleting
+   a custom food never rewrites a day already eaten. Recents and favorites hold
+   copies too, but those exist to be logged again, so they follow the edit. */
+function replaceFoodCopies(oldName, food){
+  /* a rename onto another custom food's name would otherwise leave it listed twice */
+  const swap = arr => arr.flatMap(x => x.name !== oldName ? [x] : food ? [food] : [])
+                         .filter((x, i, all) => all.findIndex(y => y.name === x.name) === i);
+  state.recents = swap(state.recents);
+  state.favorites = swap(state.favorites);
+}
+function deleteCustomFood(name){
+  const before = state.customFoods.length;
+  state.customFoods = state.customFoods.filter(x => x.name !== name);
+  replaceFoodCopies(name, null);
+  state.customConfirmDel = null;
+  if (state.customEdit === name) state.customEdit = null;
+  /* the Custom tab only exists while there is a custom food to show */
+  if (!state.customFoods.length && state.foodCat === 'Custom') state.foodCat = 'All';
+  return state.customFoods.length !== before;
+}
 
 function saveCustomFromForm(){
   const g = id => (current.querySelector('#'+id)||{}).value || '';
@@ -4456,14 +4563,26 @@ function saveCustomFromForm(){
      so a sink added later without escaping has less to work with.
      Both fields REJECT rather than truncate, and both say why: silently
      altering what someone typed is its own kind of bug. */
-  if (name.length > MAX_FOOD_TEXT || srv.length > MAX_FOOD_TEXT){
-    fail(`Name and serving must be ${MAX_FOOD_TEXT} characters or fewer.`); return;
-  }
-  if (/[<>]/.test(name) || /[<>]/.test(srv)){
-    fail('Name and serving can’t contain < or >.'); return;
-  }
+  const textErr = foodTextError(name, srv);
+  if (textErr){ fail(textErr); return; }
   const food = { name, srv: srv || '1 serving', calories: Math.round(cal),
     p:+g('cfP')||0, c:+g('cfC')||0, f:+g('cfF')||0, cat:'Custom', custom:true };
+  const editing = state.customEdit;
+  if (editing !== null){
+    /* an edit keeps the food's place in the list; a rename onto another custom
+       food's name replaces that one, exactly as saving a new food would */
+    const i = state.customFoods.findIndex(x => x.name === editing);
+    const rest = state.customFoods.filter(x => x.name !== name && x.name !== editing);
+    if (i >= 0) rest.splice(Math.min(i, rest.length), 0, food); else rest.unshift(food);
+    state.customFoods = rest;
+    replaceFoodCopies(editing, food);
+    if (editing !== name) replaceFoodCopies(name, food);
+    state.customEdit = null;
+    state.foodView = 'browse'; state.foodCat = 'Custom'; state.foodQuery = ''; state.customDraftName = '';
+    saveState();
+    refreshFoodOnly();
+    return;
+  }
   state.customFoods = [food, ...state.customFoods.filter(x=>x.name!==name)];
   state.foodView = 'browse'; state.foodQuery = ''; state.customDraftName = '';
   state.sheet = { food, qty:1 };   /* jump straight to logging it */
@@ -4516,7 +4635,7 @@ function foodZone(){
             <div class="row">
               <div style="flex:1;min-width:0">
                 <div style="font-size:13.5px;font-weight:600">${escHtml(e.food.name)}</div>
-                <div class="mut" style="font-size:11px;margin-top:1px">${fmtQty(e.qty)} × ${escHtml(e.food.srv)} · P ${eP(e)} · C ${eC(e)} · F ${eF(e)}</div>
+                <div class="mut" style="font-size:11px;margin-top:1px">${e.food.quick ? 'Quick add' : `${fmtQty(e.qty)} × ${escHtml(e.food.srv)}`} · P ${eP(e)} · C ${eC(e)} · F ${eF(e)}</div>
               </div>
               <span style="display:flex;align-items:center;gap:11px">
                 <b style="font-size:13px">${eKcal(e)}</b>
@@ -4526,6 +4645,27 @@ function foodZone(){
           </div>`).join('') : `<div class="mut" style="font-size:12.5px;padding:6px 2px 2px">Nothing logged yet.</div>`}
       </div>`;
     }).join('')}`;
+
+  /* ---- water ---- */
+  const wTarget = waterTargetMl(), wPct = Math.min(state.water / wTarget * 100, 100);
+  const [wStepMl, wStepLabel] = waterSteps()[0];
+  const water = `
+    <div class="card" style="margin-bottom:14px">
+      <div class="row">
+        <span style="font-weight:700;font-size:14px">Water</span>
+        <span style="font-size:12.5px"><b>${fmtWater(state.water)}</b><span class="mut"> / ${fmtWater(wTarget)}</span></span>
+      </div>
+      <div class="bar" style="height:6px;margin:8px 0 10px"><div style="width:${wPct}%;background:#5fa8e8"></div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        ${waterSteps().map(([ml, label]) => `<button class="chip" style="padding:8px 14px" data-act="addWater" data-ml="${ml}">+ ${label}</button>`).join('')}
+        ${state.water ? `<button class="chip" style="padding:8px 14px" data-act="addWater" data-ml="${-wStepMl}" aria-label="Take back ${wStepLabel}">− ${wStepLabel}</button>` : ''}
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+        <input id="waterIn" class="inp" type="number" inputmode="decimal" min="0" placeholder="Other amount (${useImperial() ? 'fl oz' : 'ml'})" aria-label="Other amount in ${useImperial() ? 'fluid ounces' : 'millilitres'}" style="flex:1;min-width:0;box-sizing:border-box">
+        <button class="btn" style="width:auto;padding:12px 18px;flex-shrink:0" data-act="addWaterCustom">Add</button>
+      </div>
+      <div id="waterErr" class="mut" style="color:var(--danger);font-size:12px;margin-top:6px;min-height:14px"></div>
+    </div>`;
 
   /* ---- add-food browser ---- */
   const q = state.foodQuery.trim().toLowerCase();
@@ -4541,6 +4681,17 @@ function foodZone(){
   else                                results = (FOOD_DB[state.foodCat] || []).map(f => ({...f, cat:state.foodCat}));
   const shown = (results||[]).slice(0, 60);
 
+  /* the Custom tab is where custom foods are managed: each row carries Edit and
+     a two-tap Delete. Elsewhere a custom food is just a food. */
+  const managing = state.foodView === 'browse' && !q && state.foodCat === 'Custom';
+  const manageRow = f => {
+    const id = encodeURIComponent(f.name), confirming = state.customConfirmDel === f.name;
+    return `
+    <div style="display:flex;justify-content:flex-end;gap:4px;margin:-4px 0 10px">
+      <button class="linkbtn" style="color:var(--accent)" data-act="editCustom" data-fname="${id}" aria-label="Edit ${escHtml(f.name)}">Edit</button>
+      <button class="linkbtn"${confirming ? ' style="color:var(--danger)"' : ''} data-act="delCustom" data-fname="${id}" aria-label="${confirming ? 'Confirm delete' : 'Delete'} ${escHtml(f.name)}">${confirming ? 'Tap again to delete' : 'Delete'}</button>
+    </div>`;
+  };
   const foodRow = f => `
     <div class="fitem">
       <span class="add" data-act="openFood" data-fname="${encodeURIComponent(f.name)}" data-plain>+</span>
@@ -4549,16 +4700,18 @@ function foodZone(){
         <div class="mut" style="font-size:11.5px;margin-top:2px">${escHtml(f.srv)} · ${f.calories} kcal · P ${f.p} · C ${f.c} · F ${f.f}${(q||state.foodView!=='browse')&&f.cat?` · ${escHtml(f.cat)}`:''}</div>
       </div>
       <span class="fav ${isFav(f)?'on':''}" data-act="toggleFav" data-fname="${encodeURIComponent(f.name)}">${starIcon(isFav(f))}</span>
-    </div>`;
+    </div>${managing && f.custom ? manageRow(f) : ''}`;
 
-  const browser = `
-    <div class="sec">Add to <span class="em">${state.activeMeal}</span></div>
+  const mealTabs = `
     <div class="mealtabs">
       ${Object.keys(state.meals).map(m=>`
         <span class="mealtab ${state.activeMeal===m?'on':''}" data-act="setMeal" data-meal="${m}">
           ${icon(MEAL_ICON[m], 15)} ${m}<span class="mt-k">${mealKcal(m)}</span>
         </span>`).join('')}
-    </div>
+    </div>`;
+  const browser = `
+    <div class="sec">Add to <span class="em">${state.activeMeal}</span></div>
+    ${mealTabs}
 
     <div class="seg">
       <button class="${state.foodView==='browse'?'on':''}" data-act="setFoodView" data-view="browse">Search</button>
@@ -4594,26 +4747,50 @@ function foodZone(){
            </p>`
         : `<div class="empty">Nothing to show here.</div>`}
     ${results && results.length > 60 ? `<div class="empty">Showing first 60 of ${results.length} — keep typing to narrow it down.</div>` : ''}
+    ${managing && shown.length ? `<p class="mut" style="font-size:12px;line-height:1.55;margin:4px 2px 0">Editing or deleting a custom food doesn’t change anything already logged.</p>` : ''}
 
-    <div style="margin-top:14px">
+    <div class="grid2" style="margin-top:14px">
       <button class="btn" style="background:transparent;color:var(--accent);border:1px dashed var(--accent)" data-act="setFoodView" data-view="custom">+ Create custom food</button>
+      <button class="btn" style="background:transparent;color:var(--accent);border:1px dashed var(--accent)" data-act="setFoodView" data-view="quick">+ Quick add calories</button>
     </div>`;
 
-  /* ---- custom food form ---- */
+  /* ---- custom food form (new, or editing one) ---- */
+  const ed = state.customEdit !== null ? state.customFoods.find(x => x.name === state.customEdit) : null;
+  const val = k => ed ? ` value="${escHtml(ed[k])}"` : '';
   const customForm = `
-    <div class="sec">Create a custom food</div>
+    <div class="sec">${ed ? 'Edit custom food' : 'Create a custom food'}</div>
     <div class="card" style="padding:18px">
-      <input class="inp" id="cfName" placeholder="Food name (e.g. Mom's lasagna)" value="${escHtml(state.customDraftName || '')}" style="width:100%;box-sizing:border-box;margin-bottom:10px">
-      <input class="inp" id="cfSrv" placeholder="Serving (e.g. 1 slice, 100g)" style="width:100%;box-sizing:border-box;margin-bottom:10px">
+      <input class="inp" id="cfName" placeholder="Food name (e.g. Mom's lasagna)" value="${escHtml(ed ? ed.name : (state.customDraftName || ''))}" style="width:100%;box-sizing:border-box;margin-bottom:10px">
+      <input class="inp" id="cfSrv" placeholder="Serving (e.g. 1 slice, 100g)"${val('srv')} style="width:100%;box-sizing:border-box;margin-bottom:10px">
       <div class="grid2" style="gap:10px">
-        <input class="inp" id="cfCal" type="number" placeholder="Calories" style="box-sizing:border-box">
-        <input class="inp" id="cfP" type="number" placeholder="Protein (g)" style="box-sizing:border-box">
-        <input class="inp" id="cfC" type="number" placeholder="Carbs (g)" style="box-sizing:border-box">
-        <input class="inp" id="cfF" type="number" placeholder="Fat (g)" style="box-sizing:border-box">
+        <input class="inp" id="cfCal" type="number" placeholder="Calories"${val('calories')} style="box-sizing:border-box">
+        <input class="inp" id="cfP" type="number" placeholder="Protein (g)"${val('p')} style="box-sizing:border-box">
+        <input class="inp" id="cfC" type="number" placeholder="Carbs (g)"${val('c')} style="box-sizing:border-box">
+        <input class="inp" id="cfF" type="number" placeholder="Fat (g)"${val('f')} style="box-sizing:border-box">
       </div>
       <div id="cfErr" class="mut" style="color:var(--danger);font-size:12px;margin-top:8px;min-height:14px"></div>
       <div class="grid2" style="gap:10px;margin-top:10px">
-        <button class="btn" data-act="saveCustom">Save & log</button>
+        <button class="btn" data-act="saveCustom">${ed ? 'Save changes' : 'Save & log'}</button>
+        <button class="btn" style="background:transparent;color:var(--accent);border:1px solid var(--accent)" data-act="setFoodView" data-view="browse">Cancel</button>
+      </div>
+    </div>`;
+
+  /* ---- quick add form ---- */
+  const quickForm = `
+    <div class="sec">Quick add to <span class="em">${state.activeMeal}</span></div>
+    ${mealTabs}
+    <div class="card" style="padding:18px">
+      <input class="inp" id="qaKcal" type="number" inputmode="numeric" min="1" placeholder="Calories" aria-label="Calories" style="width:100%;box-sizing:border-box;margin-bottom:10px">
+      <input class="inp" id="qaLabel" placeholder="Label (optional, e.g. Office cake)" aria-label="Label (optional)" style="width:100%;box-sizing:border-box;margin-bottom:10px">
+      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px">
+        <input class="inp" id="qaP" type="number" inputmode="numeric" min="0" placeholder="Protein" aria-label="Protein in grams (optional)" style="box-sizing:border-box;min-width:0">
+        <input class="inp" id="qaC" type="number" inputmode="numeric" min="0" placeholder="Carbs" aria-label="Carbs in grams (optional)" style="box-sizing:border-box;min-width:0">
+        <input class="inp" id="qaF" type="number" inputmode="numeric" min="0" placeholder="Fat" aria-label="Fat in grams (optional)" style="box-sizing:border-box;min-width:0">
+      </div>
+      <div class="mut" style="font-size:11.5px;margin-top:6px">Macros in grams, optional.</div>
+      <div id="qaErr" class="mut" style="color:var(--danger);font-size:12px;margin-top:8px;min-height:14px"></div>
+      <div class="grid2" style="gap:10px;margin-top:10px">
+        <button class="btn" data-act="quickAddSave">Add to ${state.activeMeal}</button>
         <button class="btn" style="background:transparent;color:var(--accent);border:1px solid var(--accent)" data-act="setFoodView" data-view="browse">Cancel</button>
       </div>
     </div>`;
@@ -4659,8 +4836,8 @@ function foodZone(){
     </div>`;
   })() : '';
 
-  const body = state.foodView === 'custom' ? customForm : browser;
-  return summary + diary + body + sheet;
+  const body = state.foodView === 'custom' ? customForm : state.foodView === 'quick' ? quickForm : browser;
+  return summary + diary + water + body + sheet;
 }
 
 function fmtQty(q){
@@ -4937,9 +5114,17 @@ function rolloverDay(){
   const n = allLogged().length;
   if (n){
     const t = totals();
-    upsertByDate(state.intakeLog, { date: state.mealsDate, kcal: t.kcal, p: t.p, c: t.c, f: t.f, n });
+    /* Water is kept only on a day that also logged food. Every intakeLog row
+       is read as a logged food day — the density guard, the measured TDEE and
+       the Nutrition averages all count it — so a water-only row would enter
+       them as a 0 kcal day and drag the target down. A water-only day is not
+       kept. */
+    const row = { date: state.mealsDate, kcal: t.kcal, p: t.p, c: t.c, f: t.f, n };
+    if (state.water > 0) row.water = state.water;
+    upsertByDate(state.intakeLog, row);
   }
   state.meals = freshMeals();
+  state.water = 0;
   state.mealsDate = today;
   return true;
 }
